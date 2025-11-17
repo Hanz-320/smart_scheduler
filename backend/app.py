@@ -42,8 +42,8 @@ def call_gemini(prompt):
     try:
         response = requests.post(GEMINI_URL, json={
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.5, "maxOutputTokens": 16384}
-        }, timeout=30)
+            "generationConfig": {"temperature": 0.5, "maxOutputTokens": 40960}
+        }, timeout=120)  # 2 minutes timeout
         
         print(f"📡 API Response Status: {response.status_code}")
         if response.status_code != 200:
@@ -51,9 +51,19 @@ def call_gemini(prompt):
             return None, f"API error {response.status_code}: {response.text[:200]}"
         
         result = response.json()
-        if result.get("candidates", [{}])[0].get("finishReason") == "MAX_TOKENS":
-            return None, "Response too long"
+        
+        # Check for various finish reasons
+        finish_reason = result.get("candidates", [{}])[0].get("finishReason", "")
+        if finish_reason in ["MAX_TOKENS", "RECITATION", "SAFETY"]:
+            print(f"⚠️ Response stopped: {finish_reason}")
+            # Try to return partial content if available
+            if result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text"):
+                return result["candidates"][0]["content"]["parts"][0]["text"], None
+            return None, f"Response incomplete: {finish_reason}"
+        
         return result["candidates"][0]["content"]["parts"][0]["text"], None
+    except requests.exceptions.Timeout:
+        return None, "Request timed out - Gemini API is slow. Try again or reduce project scope."
     except Exception as e:
         return None, str(e)
 

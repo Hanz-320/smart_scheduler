@@ -5,8 +5,6 @@ import EditTaskModal from "../components/EditTaskModal";
 import AddTaskModal from "../components/AddTaskModal";
 import axios from "axios";
 import { useTheme } from "../contexts/ThemeContext";
-import { db } from "../firebase";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 
 const BACKEND_URL = "http://localhost:5000";
 
@@ -45,100 +43,99 @@ export default function Dashboard({ tasks, setTasks, user }) {
       }
     }
     
-    // Setup real-time Firestore listener
-    let unsubscribe;
+    // Load projects using backend API (handles both individual + group projects)
     if (user) {
-      console.log("🔥 Setting up Firestore real-time listener for user:", user.uid);
+      loadAvailableProjects();
       
-      const projectsRef = collection(db, "projects");
-      const q = query(
-        projectsRef,
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc")
-      );
+      // Poll for updates every 15 seconds
+      const pollInterval = setInterval(() => {
+        loadAvailableProjects();
+      }, 15000);
       
-      unsubscribe = onSnapshot(q, 
-        (snapshot) => {
-          console.log("✅ Firestore snapshot received:", snapshot.size, "projects");
-          
-          const projects = snapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-              id: doc.id,
-              ...data,
-              tasks: (data.tasks || []).map(task => {
-                const fixed = { ...task };
-                
-                // Fix status values
-                if (!fixed.status || fixed.status === "in" || fixed.status === "progress") {
-                  fixed.status = "in-progress";
-                } else if (fixed.status !== "todo" && fixed.status !== "in-progress" && fixed.status !== "done") {
-                  fixed.status = "todo";
-                }
-                
-                if (!fixed.assignedTo) {
-                  fixed.assignedTo = "Unassigned";
-                }
-                
-                return fixed;
-              })
-            };
-          });
-          
-          // Update state and cache
-          setAvailableProjects(projects);
-          const cacheKey = `projects_${user.uid}`;
-          localStorage.setItem(cacheKey, JSON.stringify(projects));
-          localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-          
-          // Update current project if selected
-          const savedProjectId = localStorage.getItem("currentProjectId");
-          if (savedProjectId) {
-            const currentProject = projects.find(p => p.id === savedProjectId);
-            if (currentProject) {
-              setTasks(currentProject.tasks || []);
-              localStorage.setItem("tasks", JSON.stringify(currentProject.tasks || []));
-            }
-          }
-          
-          setLoadingProjects(false);
-        },
-        (error) => {
-          console.error("❌ Firestore listener error:", error);
-          setLoadingProjects(false);
-          
-          // Fallback to cached data
-          const cacheKey = `projects_${user.uid}`;
-          const cachedData = localStorage.getItem(cacheKey);
-          if (cachedData) {
-            try {
-              setAvailableProjects(JSON.parse(cachedData));
-            } catch (e) {
-              console.error("Failed to parse cached projects:", e);
-            }
-          }
-        }
-      );
+      return () => clearInterval(pollInterval);
     } else {
-      // Load from cache for non-logged in users
       setAvailableProjects([]);
       setLoadingProjects(false);
     }
-    
-    // Cleanup listener on unmount
-    return () => {
-      if (unsubscribe) {
-        console.log("🔥 Unsubscribing from Firestore listener");
-        unsubscribe();
-      }
-    };
   }, [user]);
 
   const loadAvailableProjects = async (forceRefresh = false) => {
-    // This function is now only used for the manual refresh button
-    // Real-time updates happen via Firestore listener
-    if (loadingProjects || !user) {
-      if (!user) {
+    if (!user) {
+      setAvailableProjects([]);
+      setLoadingProjects(false);
+      return;
+    }
+    
+    const cacheKey = `projects_${user.uid}`;
+    const cacheTimeKey = `${cacheKey}_time`;
+    const CACHE_DURATION = 60000; // 60 seconds
+    
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cachedData = localStorage.getItem(cacheKey);
+      const cacheTime = localStorage.getItem(cacheTimeKey);
+      
+      if (cachedData && cacheTime) {
+        const age = Date.now() - parseInt(cacheTime);
+        if (age < CACHE_DURATION) {
+          try {
+            const projects = JSON.parse(cachedData);
+            setAvailableProjects(projects);
+            setLoadingProjects(false);
+            
+            // Update current project
+            const savedProjectId = localStorage.getItem("currentProjectId");
+            if (savedProjectId) {
+              const currentProject = projects.find(p => p.id === savedProjectId);
+              if (currentProject) {
+                setTasks(currentProject.tasks || []);
+              }
+            }
+            return;
+          } catch (e) {
+            console.error("Cache parse error:", e);
+          }
+        }
+      }
+    }
+    
+    // Fetch from backend
+    setLoadingProjects(true);
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=50`);
+      const projects = response.data.projects || [];
+      
+      setAvailableProjects(projects);
+      
+      // Cache the results
+      localStorage.setItem(cacheKey, JSON.stringify(projects));
+      localStorage.setItem(cacheTimeKey, Date.now().toString());
+      
+      // Update current project
+      const savedProjectId = localStorage.getItem("currentProjectId");
+      if (savedProjectId) {
+        const currentProject = projects.find(p => p.id === savedProjectId);
+        if (currentProject) {
+          setTasks(currentProject.tasks || []);
+          localStorage.setItem("tasks", JSON.stringify(currentProject.tasks || []));
+        }
+      }
+    } catch (error) {
+      console.error("Error loading projects:", error);
+      
+      // Fallback to cache on error
+      const cachedData = localStorage.getItem(cacheKey);
+      if (cachedData) {
+        try {
+          setAvailableProjects(JSON.parse(cachedData));
+        } catch (e) {
+          console.error("Failed to parse cached projects:", e);
+        }
+      }
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
         setAvailableProjects([]);
         setLoadingProjects(false);
       }
