@@ -7,13 +7,13 @@ import { getAuth } from "firebase/auth";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyDVQ-CB39o25KQo1DYEjhctkggyU_Dhqz8",
-  authDomain: "smart-scheduler-8be21.firebaseapp.com",
-  projectId: "smart-scheduler-8be21",
-  storageBucket: "smart-scheduler-8be21.firebasestorage.app",
-  messagingSenderId: "989674479653",
-  appId: "1:989674479653:web:ee600c768371691930dfcc",
-  measurementId: "G-WWGY6898JV"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
