@@ -1,4 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+
+const BACKEND_URL = "http://localhost:5000";
 
 export default function AddTaskModal({ onClose, onSave, teamMembers }) {
   const [title, setTitle] = useState("");
@@ -7,6 +10,37 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
   const [status, setStatus] = useState("todo");
   const [assignedTo, setAssignedTo] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [estimatedHours, setEstimatedHours] = useState(null);
+  const [isEstimating, setIsEstimating] = useState(false);
+
+  // Auto-estimate duration when title, priority, or assignee changes
+  useEffect(() => {
+    const estimateDuration = async () => {
+      if (!title.trim() || title.length < 3) {
+        setEstimatedHours(null);
+        return;
+      }
+
+      setIsEstimating(true);
+      try {
+        const response = await axios.post(`${BACKEND_URL}/api/estimate-duration`, {
+          title: title.trim(),
+          priority: priority,
+          assignee: assignedTo || "Unassigned"
+        });
+        
+        setEstimatedHours(response.data.estimatedHours);
+      } catch (error) {
+        console.error("Duration estimation error:", error);
+        setEstimatedHours(2.0); // Default fallback
+      } finally {
+        setIsEstimating(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(estimateDuration, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [title, priority, assignedTo]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -25,7 +59,8 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
       due: dueDate,
       task_type: "Feature",
       acceptance_criteria: [],
-      dependencies: []
+      dependencies: [],
+      estimatedHours: estimatedHours || 2.0
     };
 
     onSave(newTask);
@@ -115,7 +150,7 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
                     type="text"
                     value={assignedTo}
                     onChange={(e) => setAssignedTo(e.target.value)}
-                    placeholder="Enter name or email"
+                    placeholder="Assign to..."
                   />
                 )}
               </div>
@@ -130,6 +165,32 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
                 />
               </div>
             </div>
+
+            {/* AI Estimated Duration */}
+            {estimatedHours !== null && (
+              <div className="form-group" style={{ 
+                background: 'var(--bg-secondary)', 
+                padding: '12px', 
+                borderRadius: '8px',
+                border: '1px solid var(--border)'
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🤖 AI Estimated Duration</span>
+                  {isEstimating && <span style={{ fontSize: '0.85em', color: 'var(--text-secondary)' }}>Calculating...</span>}
+                </label>
+                <div style={{ 
+                  fontSize: '1.5em', 
+                  fontWeight: 'bold', 
+                  color: 'var(--accent)',
+                  marginTop: '4px'
+                }}>
+                  {estimatedHours}h
+                </div>
+                <div style={{ fontSize: '0.85em', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Based on task complexity and assignee
+                </div>
+              </div>
+            )}
 
             <div className="modal-actions">
               <button type="button" className="btn btn-secondary" onClick={onClose}>

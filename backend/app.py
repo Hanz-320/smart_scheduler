@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests, json, time, re, os
+import requests, json, time, re, os, pickle
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
+import numpy as np
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -21,6 +22,21 @@ try:
 except Exception as e:
     print(f"⚠️ Firebase initialization failed: {e}")
     db = None
+
+# Load ML models for task duration estimation
+try:
+    with open('duration_model.pkl', 'rb') as f:
+        duration_model = pickle.load(f)
+    with open('le_task_type.pkl', 'rb') as f:
+        le_task_type = pickle.load(f)
+    with open('le_assignee.pkl', 'rb') as f:
+        le_assignee = pickle.load(f)
+    print("✅ ML models loaded successfully")
+except Exception as e:
+    print(f"⚠️ ML models not loaded: {e}")
+    duration_model = None
+    le_task_type = None
+    le_assignee = None
 
 def call_gemini(prompt):
     try:
@@ -41,9 +57,84 @@ def call_gemini(prompt):
     except Exception as e:
         return None, str(e)
 
+def estimate_task_duration(title, priority="medium", assignee="Unassigned"):
+    """Use ML model to estimate task duration in hours"""
+    if not duration_model:
+        return 2.0  # Default 2 hours if model not loaded
+    
+    try:
+        # Extract features (same as training)
+        description_length = len(title)
+        
+        priority_map = {'low': 1, 'medium': 2, 'high': 3}
+        priority_encoded = priority_map.get(priority.lower(), 2)
+        
+        # Categorize task type
+        title_lower = title.lower()
+        if any(word in title_lower for word in ['research', 'investigate', 'analyze']):
+            task_type = 'research'
+        elif any(word in title_lower for word in ['design', 'wireframe', 'mockup', 'ui', 'ux']):
+            task_type = 'design'
+        elif any(word in title_lower for word in ['develop', 'code', 'implement', 'build', 'prototype']):
+            task_type = 'development'
+        elif any(word in title_lower for word in ['test', 'qa', 'bug', 'fix']):
+            task_type = 'testing'
+        elif any(word in title_lower for word in ['meet', 'review', 'discuss']):
+            task_type = 'meeting'
+        else:
+            task_type = 'other'
+        
+        # Encode task type
+        try:
+            task_type_encoded = le_task_type.transform([task_type])[0]
+        except:
+            task_type_encoded = 0
+        
+        # Encode assignee
+        try:
+            assignee_encoded = le_assignee.transform([assignee])[0]
+        except:
+            assignee_encoded = 0
+        
+        # Make prediction
+        features = np.array([[description_length, priority_encoded, task_type_encoded, assignee_encoded]])
+        estimated_hours = duration_model.predict(features)[0]
+        
+        # Round to 0.5 hours
+        estimated_hours = round(estimated_hours * 2) / 2
+        
+        # Ensure reasonable bounds (0.5 to 40 hours)
+        estimated_hours = max(0.5, min(40, estimated_hours))
+        
+        return float(estimated_hours)
+    except Exception as e:
+        print(f"⚠️ Duration estimation error: {e}")
+        return 2.0
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Smart Scheduler API Running"}), 200
+
+# Estimate task duration endpoint
+@app.route("/api/estimate-duration", methods=["POST"])
+def api_estimate_duration():
+    try:
+        data = request.json
+        title = data.get("title", "")
+        priority = data.get("priority", "medium")
+        assignee = data.get("assignee", "Unassigned")
+        
+        if not title:
+            return jsonify({"error": "Title required"}), 400
+        
+        estimated_hours = estimate_task_duration(title, priority, assignee)
+        
+        return jsonify({
+            "estimatedHours": estimated_hours,
+            "estimatedTime": f"{estimated_hours}h"
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Authentication Routes
 @app.route("/api/auth/check-username", methods=["POST"])
