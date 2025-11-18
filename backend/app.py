@@ -38,34 +38,75 @@ except Exception as e:
     le_task_type = None
     le_assignee = None
 
-def call_gemini(prompt):
-    try:
-        response = requests.post(GEMINI_URL, json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.5, "maxOutputTokens": 40960}
-        }, timeout=120)  # 2 minutes timeout
-        
-        print(f"📡 API Response Status: {response.status_code}")
-        if response.status_code != 200:
-            print(f"❌ API Error Response: {response.text}")
-            return None, f"API error {response.status_code}: {response.text[:200]}"
-        
-        result = response.json()
-        
-        # Check for various finish reasons
-        finish_reason = result.get("candidates", [{}])[0].get("finishReason", "")
-        if finish_reason in ["MAX_TOKENS", "RECITATION", "SAFETY"]:
-            print(f"⚠️ Response stopped: {finish_reason}")
-            # Try to return partial content if available
-            if result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text"):
-                return result["candidates"][0]["content"]["parts"][0]["text"], None
-            return None, f"Response incomplete: {finish_reason}"
-        
-        return result["candidates"][0]["content"]["parts"][0]["text"], None
-    except requests.exceptions.Timeout:
-        return None, "Request timed out - Gemini API is slow. Try again or reduce project scope."
-    except Exception as e:
-        return None, str(e)
+# Load ML models for task assignment
+try:
+    with open('ml_model/assignment_model.pkl', 'rb') as f:
+        assignment_model = pickle.load(f)
+    with open('ml_model/le_assignee_assignment.pkl', 'rb') as f:
+        le_assignee_assignment = pickle.load(f)
+    with open('ml_model/le_task_type_assignment.pkl', 'rb') as f:
+        le_task_type_assignment = pickle.load(f)
+    print("✅ Assignment ML models loaded successfully")
+except Exception as e:
+    print(f"⚠️ Assignment ML models not loaded: {e}")
+    assignment_model = None
+    le_assignee_assignment = None
+    le_task_type_assignment = None
+
+def call_gemini(prompt, max_retries=5):
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(GEMINI_URL, json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.5, "maxOutputTokens": 409600}
+            }, timeout=180)  # 3 minutes timeout
+            
+            print(f"📡 API Response Status: {response.status_code} (Attempt {attempt + 1}/{max_retries})")
+            
+            # Handle 503 Service Unavailable (overloaded)
+            if response.status_code == 503:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 3  # Exponential backoff: 3s, 6s, 12s, 24s, 48s
+                    print(f"⏳ Model overloaded. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"❌ API Error Response: {response.text}")
+                    return None, "Gemini API is overloaded. Please wait 30-60 seconds and try again."
+            
+            if response.status_code != 200:
+                print(f"❌ API Error Response: {response.text}")
+                return None, f"API error {response.status_code}: {response.text[:200]}"
+            
+            result = response.json()
+            
+            # Check for various finish reasons
+            finish_reason = result.get("candidates", [{}])[0].get("finishReason", "")
+            if finish_reason in ["MAX_TOKENS", "RECITATION", "SAFETY"]:
+                print(f"⚠️ Response stopped: {finish_reason}")
+                # Try to return partial content if available
+                if result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text"):
+                    return result["candidates"][0]["content"]["parts"][0]["text"], None
+                return None, f"Response incomplete: {finish_reason}"
+            
+            return result["candidates"][0]["content"]["parts"][0]["text"], None
+            
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                print(f"⏳ Request timed out. Retrying...")
+                time.sleep(2)
+                continue
+            return None, "Request timed out - Gemini API is slow. Try again or reduce project scope."
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"⚠️ Error: {e}. Retrying...")
+                time.sleep(2)
+                continue
+            return None, str(e)
+    
+    return None, "Failed after all retry attempts"
 
 def estimate_task_duration(title, priority="medium", assignee="Unassigned"):
     """Use ML model to estimate task duration in hours"""
@@ -218,6 +259,44 @@ def get_user_info(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def assign_user(task, team_members):
+    """Use ML model to assign a user to a task."""
+    if not assignment_model or not le_assignee_assignment or not le_task_type_assignment:
+        # Fallback to round-robin if model is not loaded
+        return team_members[len(tasks) % len(team_members)] if team_members else "Unassigned"
+
+    try:
+        # Extract features
+        task_type = task.get("type", "other")
+        complexity = task.get("priority", "medium") # Using priority as a proxy for complexity
+
+        # Encode features
+        task_type_encoded = le_task_type_assignment.transform([task_type])[0]
+        
+        # Map complexity to numerical value
+        complexity_map = {'low': 0, 'medium': 1, 'high': 2}
+        complexity_encoded = complexity_map.get(complexity, 1)
+
+        features = [[task_type_encoded, complexity_encoded]]
+        
+        # Predict user
+        predicted_user_encoded = assignment_model.predict(features)[0]
+        predicted_user = le_assignee_assignment.inverse_transform([predicted_user_encoded])[0]
+        
+        # Ensure the predicted user is in the current team
+        if team_members and predicted_user in team_members:
+            return predicted_user
+        elif team_members:
+            # If the predicted user is not in the team, fallback to round-robin
+            return team_members[len(tasks) % len(team_members)]
+        else:
+            return "Unassigned"
+
+    except Exception as e:
+        print(f"⚠️ User assignment error: {e}")
+        # Fallback to round-robin on error
+        return team_members[len(tasks) % len(team_members)] if team_members else "Unassigned"
+
 @app.route("/generate", methods=["POST"])
 def generate():
     data = request.get_json()
@@ -243,17 +322,10 @@ def generate():
     member_roles = {}  # Track member roles for intelligent assignment
     
     if team_members and len(team_members) > 0:
-        # Group project - use team members + admin
+        # Group project - use team members (admin already included by frontend)
         team_context = "\n\n=== TEAM ROSTER (USE ONLY THESE NAMES) ===\n"
         
-        # Add admin/creator first
-        if current_user and current_user.get('username'):
-            admin_name = current_user.get('username')
-            member_names.append(admin_name)
-            member_roles[admin_name] = 'Admin'
-            team_context += f"- {admin_name} (Role: Admin)\n"
-        
-        # Then add team members
+        # Process all team members (frontend already includes admin)
         for member in team_members:
             member_name = member.get('name', '')
             member_role = member.get('role', 'Developer')
@@ -278,41 +350,31 @@ def generate():
         print(f"👤 Individual project - assigning to: {current_username}")
     
     # Generate tasks with STRICT naming requirements and sequential workflow
-    prompt = f"""Generate 8–15 structured development tasks in JSON format that strictly follow this sequence: (1) planning → (2) design → (3) database → (4) backend → (5) frontend → (6) integration → (7) testing → (8) deployment → (9) documentation.
-
-RULES:
-- Each task: 3–8 hours, actionable, dependency-correct
-- estimatedDuration: "X hours" format only
-- Type values: planning (requirements/user stories), design (wireframes/UI), database (schemas), backend (APIs), frontend (React/UI), integration (connecting modules), testing (QA), deployment (hosting), documentation (reports)
-- Test planning early, test execution after frontend/backend complete
-- Assign ONLY from roster: {', '.join(member_names)}
-- Distribute fairly (max 40% per person unless individual project)
-- Never invent names, skip steps, or mislabel tasks
-
-PROJECT: {base_description}
-{team_context}
-
-JSON format:
-[{{"title":"Short title","priority":"high|medium|low","estimatedDuration":"X hours","type":"planning|design|database|backend|frontend|integration|testing|deployment|documentation","assigned_user":"EXACT_NAME"}}]"""
+    prompt = f"""Generate a detailed project plan with tasks as a JSON array of objects. The project is about: {base_description}.
+Each task object should have the following fields: "title", "priority", "estimatedDuration", "type", and "assigned_user".
+Assign tasks to the following team members: {', '.join(member_names) if member_names else 'Unassigned'}.
+Ensure the tasks are in a logical sequence.
+Return ONLY the JSON array with no markdown formatting."""
     
-    print(f"🤖 AI Prompt:\n{prompt}\n")
+    print(f"🤖 Calling Gemini API to generate tasks...\n")
     
     result, error = call_gemini(prompt)
     if error:
         return jsonify({"error": error}), 500
     
-    # Parse JSON
     try:
-        match = re.search(r'\[.*\]', result, re.DOTALL)
-        if match:
-            result = match.group(0)
-        tasks_data = json.loads(result)
-    except:
-        return jsonify({"error": "Invalid JSON from AI"}), 500
+        # Clean the result to get a valid JSON
+        json_str = re.search(r'\[.*\]', result, re.DOTALL).group(0)
+        tasks_data = json.loads(json_str)
+    except (json.JSONDecodeError, AttributeError):
+        return jsonify({"error": "Failed to parse AI response. Please try again."}), 500
+
+    print(f"✅ Received {len(tasks_data)} tasks from AI")
+    print(f"👥 Team roster for assignment: {member_names} (total: {len(member_names)} members)")
     
     # Process tasks with enhanced details
     tasks = []
-    for t in tasks_data[:10]:  # Max 10 tasks
+    for idx, t in enumerate(tasks_data):
         # Parse duration
         duration = t.get("estimatedDuration", "3 hours")
         hours = 3
@@ -328,62 +390,17 @@ JSON format:
         # Capitalize first letter for consistency
         task_type = task_type.capitalize() if task_type else "Backend"
         
-        # Use assigned_user from AI or fallback
-        assigned_user = t.get("assigned_user", "")
-        original_assignment = assigned_user
-        
-        # AGGRESSIVE FILTERING: Reject ANY default/generic names
-        default_names = ["Alice", "Bob", "Carol", "Unknown", "User", "Admin", "Unassigned", 
-                        "Developer", "Designer", "Manager", "Engineer", "Tester", "Member"]
-        
-        # Check if it's a forbidden name (case-insensitive)
-        is_forbidden = any(assigned_user.lower() == name.lower() for name in default_names)
-        
-        if is_forbidden:
-            print(f"❌ REJECTED forbidden name: '{assigned_user}'")
-            assigned_user = ""
-        
-        # Also reject if assigned_user is NOT in our member list
-        if assigned_user and member_names and assigned_user not in member_names:
-            print(f"❌ REJECTED unknown name: '{assigned_user}' (not in {member_names})")
-            assigned_user = ""
-        
-        # Validate and auto-assign if needed
-        if member_names:
-            if assigned_user and assigned_user in member_names:
-                # Valid assignment
-                print(f"✅ Valid assignment: '{assigned_user}'")
-            else:
-                # Invalid or empty - FORCE assignment based on role matching
-                print(f"⚠️ Forcing assignment (was: '{original_assignment}')")
-                
-                # Try to match task type to member role
-                best_match = None
-                for name in member_names:
-                    role = member_roles.get(name, "").lower()
-                    if task_type.lower() in role:
-                        best_match = name
-                        break
-                
-                # If no role match, distribute round-robin
-                if not best_match:
-                    best_match = member_names[len(tasks) % len(member_names)]
-                
-                assigned_user = best_match
-                print(f"🔄 FORCED assignment: '{assigned_user}' (task type: {task_type})")
-        else:
-            # No team members - should not happen but fallback to Unassigned
-            assigned_user = "Unassigned"
-        
-        if original_assignment != assigned_user:
-            print(f"🔄 Changed assignment: '{original_assignment}' -> '{assigned_user}'")
+        # Assign user using the ML model
+        assigned_user = assign_user(t, member_names)
         
         tasks.append({
+            "sequence": idx + 1,  # Add sequence number for ordering
             "title": t.get("title", "Untitled Task"),
             "description": "",
             "status": "to-do",
             "priority": t.get("priority", "medium").lower(),
             "assignedTo": assigned_user,
+            "assigned_user": assigned_user,
             "task_type": task_type,
             "acceptance_criteria": [],
             "dependencies": [],
@@ -391,6 +408,13 @@ JSON format:
             "actualDuration": 0,
             "comments": []
         })
+        print(f"  ✅ Task #{idx+1} (seq={idx+1}): {t.get('title', '')[:40]}... → {assigned_user}")
+    
+    # Debug: Print final task order before returning
+    print("\n📤 FINAL TASK ORDER BEING RETURNED:")
+    for i, task in enumerate(tasks, 1):
+        print(f"  #{i}: {task['title'][:50]} | {task['task_type']} | → {task['assignedTo']}")
+    print()
     
     return jsonify({"tasks": tasks}), 200
 
@@ -408,7 +432,7 @@ def projects():
                 return jsonify({"error": "userId parameter is required"}), 400
             
             # Limit to last 50 projects to improve performance
-            limit = int(request.args.get("limit", 50))
+            limit = int(request.args.get("limit", 20))  # Reduced default from 50 to 20
             
             projects = []
             project_ids_seen = set()
@@ -422,14 +446,16 @@ def projects():
                     project["id"] = doc.id
                     project_ids_seen.add(doc.id)
                     
-                    # Get tasks for this project
+                    # Get tasks for this project - limit to 100 tasks per project
                     tasks = []
-                    tasks_ref = doc.reference.collection("tasks")
+                    tasks_ref = doc.reference.collection("tasks").limit(100)
                     for task_doc in tasks_ref.stream():
                         task = task_doc.to_dict()
                         task["id"] = task_doc.id
                         tasks.append(task)
                     
+                    # Sort by sequence number in Python (Firestore index not required)
+                    tasks.sort(key=lambda t: t.get("sequence", 999))
                     project["tasks"] = tasks
                     projects.append(project)
             except Exception as index_error:
@@ -442,14 +468,16 @@ def projects():
                     project["id"] = doc.id
                     project_ids_seen.add(doc.id)
                     
-                    # Get tasks for this project
+                    # Get tasks for this project - limit to 100 tasks per project
                     tasks = []
-                    tasks_ref = doc.reference.collection("tasks")
+                    tasks_ref = doc.reference.collection("tasks").limit(100)
                     for task_doc in tasks_ref.stream():
                         task = task_doc.to_dict()
                         task["id"] = task_doc.id
                         tasks.append(task)
                     
+                    # Sort by sequence number in Python (Firestore index not required)
+                    tasks.sort(key=lambda t: t.get("sequence", 999))
                     project["tasks"] = tasks
                     projects.append(project)
             
@@ -490,14 +518,16 @@ def projects():
                         project["id"] = doc.id
                         project_ids_seen.add(doc.id)
                         
-                        # Get tasks for this project
+                        # Get tasks for this project - limit to 100 tasks per project
                         tasks = []
-                        tasks_ref = doc.reference.collection("tasks")
+                        tasks_ref = doc.reference.collection("tasks").limit(100)
                         for task_doc in tasks_ref.stream():
                             task = task_doc.to_dict()
                             task["id"] = task_doc.id
                             tasks.append(task)
                         
+                        # Sort by sequence number in Python (Firestore index not required)
+                        tasks.sort(key=lambda t: t.get("sequence", 999))
                         project["tasks"] = tasks
                         projects.append(project)
             

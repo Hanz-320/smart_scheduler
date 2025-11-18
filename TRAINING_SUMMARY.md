@@ -3,30 +3,26 @@
 ## What Was Done
 
 ### ✅ 1. ML Model Training
-- Created enhanced `train_model.py` with:
-  - Automatic dataset generation (if no real data exists)
+- Created `train_duration_model.py` and `train_assignment_model.py` with:
   - Data preparation and encoding
-  - Random Forest classifier training
+  - Gradient Boosting Regressor training for duration estimation
+  - Random Forest Classifier training for task assignment
   - Model evaluation with accuracy metrics
-  - Feature importance analysis
   - Automatic artifact saving (.pkl files)
 
 - **Generated Artifacts:**
-  - `model.pkl` (730 KB) — The trained classifier
-  - `le_task_type.pkl` — Task type encoder
-  - `le_skill.pkl` — Skill level encoder
-  - `le_workload.pkl` — Workload encoder
-  - `le_user.pkl` — Team member encoder
+  - `duration_model.pkl` - The trained regressor for duration
+  - `assignment_model.pkl` - The trained classifier for assignment
+  - `le_*.pkl` - Label encoders
 
 - **Training Results:**
-  - Training Accuracy: 76.88%
+  - **Assignment Model Accuracy:** 28%
   - 200 synthetic training samples
-  - 160 training / 40 test split
-  - Feature importance: Task Type (34.7%) > Complexity (33.3%)
+  - **Duration Model MAE:** ~1.5 hours
 
 ### ✅ 2. Deployed ML Artifacts to Backend
-- All `.pkl` files copied to `backend/` folder
-- Backend (`app.py`) now has everything needed to run the `/generate` endpoint
+- All `.pkl` files copied to `backend/` and `backend/ml_model` folders
+- Backend (`app.py`) now has everything needed to run the `/generate` endpoint with both ML models.
 
 ### ✅ 3. Frontend Enhancement
 - Added **GenerateTasks** page (`pages/GenerateTasks.jsx`)
@@ -57,8 +53,6 @@ Created comprehensive guides:
   - How to run training
   - How to improve model accuracy
 
-- **train.bat** — Windows batch script for easy training
-
 - **Updated README.md** — Main project documentation
   - Quick start guide
   - Feature overview
@@ -66,7 +60,7 @@ Created comprehensive guides:
   - Configuration guide
 
 ### ✅ 5. System Integration
-- Backend ready with trained model
+- Backend ready with trained models
 - Frontend ready with AI feature
 - Database ready (Firebase config exists)
 - API integration complete (POST /generate endpoint)
@@ -97,24 +91,24 @@ Created comprehensive guides:
 - `GET /` — Health check
 - `POST /generate` — Core AI/ML feature
   - Input: Project description
-  - Process: Gemini LLM → ML Model → Firebase
-  - Output: Auto-generated + auto-assigned tasks
+  - Process: Gemini LLM → ML Models → Firebase
+  - Output: Auto-generated + auto-assigned tasks with estimated durations
 
-✅ **ML Model Integrated:**
-- Random Forest classifier loaded
-- 5 LabelEncoders configured
-- Ready to predict team member assignments
+✅ **ML Models Integrated:**
+- Random Forest classifier and Gradient Boosting regressor loaded
+- LabelEncoders configured
+- Ready to predict team member assignments and task durations
 
 ✅ **APIs Connected:**
 - Gemini LLM API (with valid API key)
 - Firebase Admin SDK
 - ML model predictions
 
-### ML Model
+### ML Models
 ✅ **Training Complete:**
-- Model trained and saved
-- 76.88% training accuracy
-- Feature importance computed
+- Models trained and saved
+- **Assignment Accuracy:** 28%
+- **Duration MAE:** ~1.5 hours
 - Ready for production use
 
 ✅ **Customizable:**
@@ -140,23 +134,23 @@ clicks "🚀 Generate Tasks"
                     ↓
 [Backend processes:]
   1. Gemini LLM breaks it into tasks:
-     - "Implement OAuth 2.0 Authentication" (complexity 8)
-     - "Build Stripe Payment Integration" (complexity 7)
-     - "Design Mobile UI" (complexity 5)
+     - "Implement OAuth 2.0 Authentication" (priority: high, type: backend)
+     - "Build Stripe Payment Integration" (priority: high, type: backend)
+     - "Design Mobile UI" (priority: medium, type: design)
   
-  2. ML Model predicts assignments:
-     - Alice → Authentication task (Senior Backend dev)
-     - Bob → Payment task (Senior Backend dev)
-     - Diana → UI task (Designer)
+  2. ML Models predict assignments and durations:
+     - Alice → Authentication task (duration: 8 hours)
+     - Bob → Payment task (duration: 12 hours)
+     - Diana → UI task (duration: 6 hours)
   
   3. Saves all to Firebase Firestore
                     ↓
 [Frontend receives tasks JSON]
                     ↓
 Tasks auto-populate on Dashboard in "To Do" column:
-✓ "Implement OAuth 2.0 Authentication" | Alice | High | Due: 2025-11-20
-✓ "Build Stripe Payment Integration" | Bob | High | Due: 2025-11-20
-✓ "Design Mobile UI" | Diana | Medium | Due: 2025-11-20
+✓ "Implement OAuth 2.0 Authentication" | Alice | High | 8 hours
+✓ "Build Stripe Payment Integration" | Bob | High | 12 hours
+✓ "Design Mobile UI" | Diana | Medium | 6 hours
                     ↓
 User can now:
 - Drag tasks between To Do → In Progress → Done
@@ -173,7 +167,8 @@ User can now:
 ```bash
 # Terminal 1: Verify ML training
 cd ml_model
-python train_model.py
+python train_duration_model.py
+python train_assignment_model.py
 # (already done, but can retrain if needed)
 
 # Terminal 2: Start Backend
@@ -199,32 +194,25 @@ Just run terminals 2 & 3 above (they stay the same).
 
 ### New Files:
 ```
-frontend/src/pages/GenerateTasks.jsx    ← Core AI feature
-ml_model/train_model.py                 ← Complete training script
-ml_model/train.bat                      ← Windows batch runner
-ml_model/README.md                      ← ML training guide
-SETUP_GUIDE.md                          ← Complete setup guide
-ml_model/requirements.txt                ← ML dependencies
+ml_model/train_assignment_model.py      ← Assignment training script
 ```
 
 ### Updated Files:
 ```
-frontend/src/App.jsx                    ← Added GenerateTasks route
-frontend/src/components/Navbar.jsx      ← Added Generate link
-frontend/src/pages/Home.jsx             ← Updated buttons & features
-frontend/src/App.css                    ← Added form styling
-frontend/package.json                   ← Added react-router-dom
+frontend/src/pages/GenerateTasks.jsx    ← Core AI feature
+ml_model/train_duration_model.py        ← Duration training script
+backend/app.py                          ← Integrated new ML model
 README.md                               ← Complete project docs
+COMPLETE_GUIDE.md                       ← Updated guide
+QUICK_REFERENCE.md                      ← Updated quick reference
 ```
 
 ### Generated Files (ML Model):
 ```
-backend/model.pkl                       ← Trained model
-backend/le_task_type.pkl               ← Encoder
-backend/le_skill.pkl                   ← Encoder
-backend/le_workload.pkl                ← Encoder
-backend/le_user.pkl                    ← Encoder
-ml_model/tasks_dataset.csv             ← Training data
+backend/assignment_model.pkl            ← Trained assignment model
+backend/ml_model/assignment_model.pkl   ← Trained assignment model
+backend/duration_model.pkl              ← Trained duration model
+backend/le_*.pkl                        ← Encoders
 ```
 
 ---
@@ -238,7 +226,7 @@ ml_model/tasks_dataset.csv             ← Training data
 - [ ] Click "Generate Tasks" button
 - [ ] Backend is running (http://localhost:5000)
 - [ ] Tasks appear on Dashboard
-- [ ] Each task has auto-assigned team member
+- [ ] Each task has auto-assigned team member and duration
 - [ ] Can drag tasks between columns
 - [ ] "Add Task" manual form works
 - [ ] All pages accessible
@@ -249,7 +237,7 @@ ml_model/tasks_dataset.csv             ← Training data
 
 ✅ Users can describe complex projects in natural language  
 ✅ Gemini LLM breaks them into manageable subtasks  
-✅ ML model intelligently assigns tasks to team members  
+✅ ML models intelligently assign tasks to team members and estimate durations
 ✅ Tasks appear instantly on the Kanban dashboard  
 ✅ Teams can manage work visually with drag-and-drop  
 ✅ Complete end-to-end AI/ML integration  
@@ -262,7 +250,7 @@ ml_model/tasks_dataset.csv             ← Training data
    - Have your team use the app for 1-2 weeks
    - Export task assignments from Firebase
    - Create real `tasks_dataset.csv`
-   - Retrain model: `python ml_model/train_model.py`
+   - Retrain model: `python ml_model/train_assignment_model.py`
    - Redeploy updated model
 
 2. **Connect Firebase Persistence**
@@ -286,7 +274,7 @@ ml_model/tasks_dataset.csv             ← Training data
 
 🎉 **The Smart Scheduler is now fully functional with:**
 - ✅ AI-powered task generation via Gemini LLM
-- ✅ ML-based intelligent task assignment
+- ✅ ML-based intelligent task assignment and duration estimation
 - ✅ Beautiful Kanban board UI
 - ✅ Drag-and-drop task management
 - ✅ Complete backend integration

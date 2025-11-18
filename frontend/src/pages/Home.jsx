@@ -193,6 +193,7 @@ export default function Home({ addTasks, user }) {
         console.log(`Task ${idx + 1}: ${task.title} -> Assigned to: ${assignedUser}`);
         return {
           id: Date.now() + idx,
+          sequence: task.sequence || (idx + 1),  // 🔥 FIX: Preserve sequence from backend
           title: task.title,
           description: task.description || "Task details",
           status: "todo",

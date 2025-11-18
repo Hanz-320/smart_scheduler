@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function EditTaskModal({ task, onClose, onSave, teamMembers }) {
+export default function EditTaskModal({ task, onClose, onSave, onDelete, teamMembers }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
   const [priority, setPriority] = useState(task.priority);
@@ -19,6 +19,12 @@ export default function EditTaskModal({ task, onClose, onSave, teamMembers }) {
       due: dueDate,
       status
     });
+  };
+
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete(task.id);
+    }
   };
 
   return (
@@ -118,6 +124,14 @@ export default function EditTaskModal({ task, onClose, onSave, teamMembers }) {
           </div>
 
           <div className="modal-actions">
+            <button 
+              type="button" 
+              className="btn btn-danger"
+              onClick={handleDelete}
+              style={{ marginRight: 'auto' }}
+            >
+              🗑️ Delete
+            </button>
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>

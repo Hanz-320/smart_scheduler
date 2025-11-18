@@ -22,6 +22,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUser, setFilterUser] = useState("");
+  const [lastTaskUpdate, setLastTaskUpdate] = useState(Date.now());
 
   // Save view mode preference
   useEffect(() => {
@@ -88,7 +89,11 @@ export default function Dashboard({ tasks, setTasks, user }) {
             if (savedProjectId) {
               const currentProject = projects.find(p => p.id === savedProjectId);
               if (currentProject) {
-                setTasks(currentProject.tasks || []);
+                // Only update tasks if they haven't been modified recently
+                const timeSinceLastUpdate = Date.now() - lastTaskUpdate;
+                if (timeSinceLastUpdate > 5000) {
+                  setTasks(currentProject.tasks || []);
+                }
               }
             }
             return;
@@ -102,7 +107,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
     // Fetch from backend
     setLoadingProjects(true);
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=50`);
+      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=20`);
       const projects = response.data.projects || [];
       
       setAvailableProjects(projects);
@@ -116,8 +121,12 @@ export default function Dashboard({ tasks, setTasks, user }) {
       if (savedProjectId) {
         const currentProject = projects.find(p => p.id === savedProjectId);
         if (currentProject) {
-          setTasks(currentProject.tasks || []);
-          localStorage.setItem("tasks", JSON.stringify(currentProject.tasks || []));
+          // Only update tasks if they haven't been modified recently (avoid overwriting drag-drop changes)
+          const timeSinceLastUpdate = Date.now() - lastTaskUpdate;
+          if (timeSinceLastUpdate > 5000) { // 5 second grace period
+            setTasks(currentProject.tasks || []);
+            localStorage.setItem("tasks", JSON.stringify(currentProject.tasks || []));
+          }
         }
       }
     } catch (error) {
@@ -136,25 +145,19 @@ export default function Dashboard({ tasks, setTasks, user }) {
       setLoadingProjects(false);
     }
   };
-        setAvailableProjects([]);
-        setLoadingProjects(false);
-      }
-      return;
-    }
-    
-    console.log("🔄 Manual refresh triggered");
-    setLoadingProjects(true);
-    
-    // The Firestore listener will automatically update when data changes
-    // This manual function just sets loading state
-    setTimeout(() => {
-      setLoadingProjects(false);
-    }, 1000);
-  };
   
   const handleProjectChange = (e) => {
     const projectId = e.target.value;
-    if (!projectId) return;
+    if (!projectId) {
+      // Clear tasks when deselecting project
+      setTasks([]);
+      setCurrentProjectId("");
+      setCurrentProjectTitle("");
+      localStorage.removeItem("currentProjectId");
+      localStorage.removeItem("currentProjectTitle");
+      localStorage.removeItem("tasks");
+      return;
+    }
     
     const project = availableProjects.find(p => p.id === projectId);
     if (project) {
@@ -298,24 +301,45 @@ export default function Dashboard({ tasks, setTasks, user }) {
       newTasks.splice(insertPosition, 0, updatedTask);
     }
     
+    // Immediately update UI for better UX
     setTasks(newTasks);
+    setLastTaskUpdate(Date.now());
     localStorage.setItem("tasks", JSON.stringify(newTasks));
     
     if (currentProjectId) {
       setAvailableProjects(prev => 
         prev.map(p => p.id === currentProjectId ? { ...p, tasks: newTasks } : p)
       );
+      
+      // Update cache to prevent polling from overwriting
+      const cacheKey = `projects_${user.uid}`;
+      const cachedData = localStorage.getItem(cacheKey);
+      if (cachedData) {
+        try {
+          const projects = JSON.parse(cachedData);
+          const updatedProjects = projects.map(p => 
+            p.id === currentProjectId ? { ...p, tasks: newTasks } : p
+          );
+          localStorage.setItem(cacheKey, JSON.stringify(updatedProjects));
+        } catch (e) {
+          console.error("Failed to update cache:", e);
+        }
+      }
     }
 
-    // Update backend
+    // Update backend asynchronously (don't wait for response)
     const updateData = {
       status: updatedTask.status,
       assignedTo: updatedTask.assignedTo
     };
     
     axios.patch(`${BACKEND_URL}/api/tasks/${tid}`, updateData)
+      .then(() => {
+        console.log("✅ Task updated on backend");
+      })
       .catch((err) => {
-        console.error("Failed to update task:", err);
+        console.error("❌ Failed to update task on backend:", err);
+        // Optionally: Show error message to user
       });
   };
 
@@ -355,9 +379,36 @@ export default function Dashboard({ tasks, setTasks, user }) {
       filteredTasks = filteredTasks.filter(t => t.assignedTo === filterUser);
     }
     
-    // Sort tasks by priority (High -> Medium -> Low) to show important tasks first
-    const priorityOrder = { 'High': 0, 'high': 0, 'Medium': 1, 'medium': 1, 'Low': 2, 'low': 2 };
+    // Debug: Log task order before sorting
+    console.log('🔍 Before sorting:', filteredTasks.map(t => `#${t.sequence}: ${t.title?.substring(0, 40)}...`));
+    
+    // Sort tasks by sequence number first (to preserve workflow order), then by priority
+    // If no sequence field exists (old projects), preserve order received from backend
     filteredTasks.sort((a, b) => {
+      // Primary sort: sequence number (if available)
+      const aSeq = a.sequence;
+      const bSeq = b.sequence;
+      
+      // If both have sequence numbers, sort by them
+      if (aSeq !== undefined && bSeq !== undefined) {
+        if (aSeq !== bSeq) {
+          return aSeq - bSeq;
+        }
+      }
+      
+      // If only one has sequence, prioritize it
+      if (aSeq !== undefined && bSeq === undefined) return -1;
+      if (aSeq === undefined && bSeq !== undefined) return 1;
+      
+      // If neither has sequence, sort by ID (preserves creation order)
+      const aId = typeof a.id === 'number' ? a.id : parseInt(a.id) || 0;
+      const bId = typeof b.id === 'number' ? b.id : parseInt(b.id) || 0;
+      if (aId !== bId) {
+        return aId - bId;
+      }
+      
+      // Final fallback: priority (High -> Medium -> Low)
+      const priorityOrder = { 'High': 0, 'high': 0, 'Medium': 1, 'medium': 1, 'Low': 2, 'low': 2 };
       const aPriority = priorityOrder[a.priority] ?? 3;
       const bPriority = priorityOrder[b.priority] ?? 3;
       return aPriority - bPriority;
@@ -373,6 +424,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
   const handleSaveTask = async (updatedTask) => {
     const newTasks = tasks.map(t => t.id === updatedTask.id ? updatedTask : t);
     setTasks(newTasks);
+    setLastTaskUpdate(Date.now());
     localStorage.setItem("tasks", JSON.stringify(newTasks));
     
     // Update in Firebase if project exists
@@ -382,6 +434,36 @@ export default function Dashboard({ tasks, setTasks, user }) {
         console.log("✅ Task updated in Firebase");
       } catch (err) {
         console.error("⚠️ Failed to update task in Firebase:", err);
+      }
+    }
+    
+    setEditingTask(null);
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!window.confirm("Are you sure you want to delete this task?")) {
+      return;
+    }
+
+    const newTasks = tasks.filter(t => t.id !== taskId);
+    setTasks(newTasks);
+    setLastTaskUpdate(Date.now());
+    localStorage.setItem("tasks", JSON.stringify(newTasks));
+    
+    // Update available projects
+    if (currentProjectId) {
+      setAvailableProjects(prev =>
+        prev.map(p => p.id === currentProjectId ? { ...p, tasks: newTasks } : p)
+      );
+    }
+
+    // Delete from Firebase
+    if (currentProjectId) {
+      try {
+        await axios.delete(`${BACKEND_URL}/api/tasks/${taskId}`);
+        console.log("✅ Task deleted from Firebase");
+      } catch (err) {
+        console.error("⚠️ Failed to delete task from Firebase:", err);
       }
     }
     
@@ -405,6 +487,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
       const updatedTasks = [...tasks, taskWithId];
       
       setTasks(updatedTasks);
+      setLastTaskUpdate(Date.now());
       localStorage.setItem("tasks", JSON.stringify(updatedTasks));
       
       // Update available projects
@@ -423,165 +506,297 @@ export default function Dashboard({ tasks, setTasks, user }) {
   return (
     <div className="page dashboard-page">
       <div className="dashboard-container">
-        {/* Left Sidebar */}
+        {/* Left Sidebar - Project Explorer + Task Stats */}
         <aside className="dashboard-sidebar">
-          {/* Quick Filters */}
+          {/* Project Explorer */}
           <div className="sidebar-section">
-            <h3 className="sidebar-title">⚡ Quick Filters</h3>
-            <div className="sidebar-filters">
+            <div className="sidebar-section-header">
+              <h3 className="sidebar-title">📂 Projects</h3>
               <button 
-                className="sidebar-filter-btn"
-                onClick={() => setShowAddTaskModal(true)}
-                disabled={!currentProjectId}
-              >
-                <span className="filter-icon">➕</span>
-                <span className="filter-label">Add Task</span>
-              </button>
-              
-              <button 
-                className={`sidebar-filter-btn ${filterStatus === 'in-progress' ? 'active' : ''}`}
-                onClick={() => setFilterStatus(filterStatus === 'in-progress' ? '' : 'in-progress')}
-              >
-                <span className="filter-icon">⚡</span>
-                <span className="filter-label">In Progress</span>
-                <span className="filter-count">{user ? tasks.filter(t => t.assignedTo === (user.username || user.email) && t.status === 'in-progress').length : tasks.filter(t => t.status === 'in-progress').length}</span>
-              </button>
-              
-              <button 
-                className="sidebar-filter-btn"
-                onClick={() => {
-                  const today = new Date().toISOString().split('T')[0];
-                  setSearchQuery(tasks.find(t => t.dueDate === today)?.title || '');
-                }}
-              >
-                <span className="filter-icon">📅</span>
-                <span className="filter-label">Due Today</span>
-                <span className="filter-count">
-                  {user 
-                    ? tasks.filter(t => t.assignedTo === (user.username || user.email) && t.dueDate === new Date().toISOString().split('T')[0] && t.status !== 'done').length
-                    : tasks.filter(t => t.dueDate === new Date().toISOString().split('T')[0] && t.status !== 'done').length
-                  }
-                </span>
-              </button>
-              
-              <button 
-                className="sidebar-filter-btn"
-                onClick={() => {
-                  setSearchQuery('');
-                  setFilterStatus('');
-                  setFilterUser('');
-                }}
-              >
-                <span className="filter-icon">🔄</span>
-                <span className="filter-label">Reset Filters</span>
-              </button>
-
-              <button 
-                className="sidebar-filter-btn"
+                className="btn-icon-small"
                 onClick={() => loadAvailableProjects(true)}
                 disabled={loadingProjects}
-                title="Refresh projects from database"
+                title="Refresh projects"
               >
-                <span className="filter-icon">🔄</span>
-                <span className="filter-label">
-                  {loadingProjects ? 'Refreshing...' : 'Refresh Projects'}
-                </span>
+                🔄
               </button>
             </div>
+
+            {/* Individual Projects */}
+            {availableProjects.filter(p => !p.groupId).length > 0 && (
+              <div className="project-group">
+                <div className="project-group-label">👤 Individual</div>
+                {availableProjects.filter(p => !p.groupId).map((project) => (
+                  <button
+                    key={project.id}
+                    className={`project-item ${currentProjectId === project.id ? 'active' : ''}`}
+                    onClick={() => {
+                      const e = { target: { value: project.id } };
+                      handleProjectChange(e);
+                    }}
+                  >
+                    <span className="project-item-name">{project.title}</span>
+                    <span className="project-item-count">{project.tasks?.length || 0}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Group Projects */}
+            {availableProjects.filter(p => p.groupId).length > 0 && (
+              <div className="project-group">
+                <div className="project-group-label">👥 Group</div>
+                {availableProjects.filter(p => p.groupId).map((project) => (
+                  <button
+                    key={project.id}
+                    className={`project-item ${currentProjectId === project.id ? 'active' : ''}`}
+                    onClick={() => {
+                      const e = { target: { value: project.id } };
+                      handleProjectChange(e);
+                    }}
+                  >
+                    <span className="project-item-name">{project.title}</span>
+                    <span className="project-item-count">{project.tasks?.length || 0}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {availableProjects.length === 0 && (
+              <div className="empty-projects">
+                <p>No projects yet</p>
+                <small>Create one from Home</small>
+              </div>
+            )}
           </div>
+
+          {/* Task Statistics */}
+          {currentProjectId && (
+            <div className="sidebar-section task-stats-section">
+              <h3 className="sidebar-title">📋 Task Overview</h3>
+              
+              <div className="task-stats-grid">
+                <div className="task-stat-card">
+                  <div className="task-stat-value">{tasks.length}</div>
+                  <div className="task-stat-label">Total</div>
+                </div>
+                <div className="task-stat-card">
+                  <div className="task-stat-value">{tasks.filter(t => t.status === 'todo').length}</div>
+                  <div className="task-stat-label">To Do</div>
+                </div>
+                <div className="task-stat-card">
+                  <div className="task-stat-value">{tasks.filter(t => t.status === 'in-progress').length}</div>
+                  <div className="task-stat-label">In Progress</div>
+                </div>
+                <div className="task-stat-card">
+                  <div className="task-stat-value">{tasks.filter(t => t.status === 'done').length}</div>
+                  <div className="task-stat-label">Done</div>
+                </div>
+              </div>
+
+              <div className="circular-progress-container">
+                <svg className="circular-progress" viewBox="0 0 200 200">
+                  {(() => {
+                    const todoCount = tasks.filter(t => t.status === 'todo').length;
+                    const inProgressCount = tasks.filter(t => t.status === 'in-progress').length;
+                    const doneCount = tasks.filter(t => t.status === 'done').length;
+                    const total = tasks.length;
+                    
+                    if (total === 0) {
+                      return (
+                        <>
+                          <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="var(--border)"
+                            strokeWidth="20"
+                          />
+                          <text
+                            x="100"
+                            y="100"
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            className="progress-text"
+                          >
+                            0%
+                          </text>
+                        </>
+                      );
+                    }
+                    
+                    const todoPercent = (todoCount / total) * 100;
+                    const inProgressPercent = (inProgressCount / total) * 100;
+                    const donePercent = (doneCount / total) * 100;
+                    
+                    const circumference = 2 * Math.PI * 80;
+                    const todoLength = (todoPercent / 100) * circumference;
+                    const inProgressLength = (inProgressPercent / 100) * circumference;
+                    const doneLength = (donePercent / 100) * circumference;
+                    
+                    let offset = 0;
+                    
+                    return (
+                      <>
+                        {/* To Do - Red/Orange */}
+                        {todoCount > 0 && (
+                          <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="#f59e0b"
+                            strokeWidth="20"
+                            strokeDasharray={`${todoLength} ${circumference}`}
+                            strokeDashoffset={-offset}
+                            transform="rotate(-90 100 100)"
+                            className="progress-segment"
+                          />
+                        )}
+                        {/* In Progress - Blue */}
+                        {inProgressCount > 0 && (
+                          <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="#3b82f6"
+                            strokeWidth="20"
+                            strokeDasharray={`${inProgressLength} ${circumference}`}
+                            strokeDashoffset={-(offset + todoLength)}
+                            transform="rotate(-90 100 100)"
+                            className="progress-segment"
+                          />
+                        )}
+                        {/* Done - Green */}
+                        {doneCount > 0 && (
+                          <circle
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            fill="none"
+                            stroke="#10b981"
+                            strokeWidth="20"
+                            strokeDasharray={`${doneLength} ${circumference}`}
+                            strokeDashoffset={-(offset + todoLength + inProgressLength)}
+                            transform="rotate(-90 100 100)"
+                            className="progress-segment"
+                          />
+                        )}
+                        <text
+                          x="100"
+                          y="100"
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          className="progress-text"
+                        >
+                          {Math.round(donePercent)}%
+                        </text>
+                      </>
+                    );
+                  })()}
+                </svg>
+                <div className="circular-progress-legend">
+                  <div className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#f59e0b' }}></span>
+                    <span className="legend-label">To Do ({tasks.filter(t => t.status === 'todo').length})</span>
+                  </div>
+                  <div className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#3b82f6' }}></span>
+                    <span className="legend-label">In Progress ({tasks.filter(t => t.status === 'in-progress').length})</span>
+                  </div>
+                  <div className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#10b981' }}></span>
+                    <span className="legend-label">Done ({tasks.filter(t => t.status === 'done').length})</span>
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                className="btn-add-task-sidebar"
+                onClick={() => setShowAddTaskModal(true)}
+              >
+                ➕ Add Task
+              </button>
+            </div>
+          )}
         </aside>
 
         {/* Main Content */}
         <div className="dashboard-main">
-      <div className="dashboard-header">
-        <div className="dashboard-header-left">
-          <h2 className="dashboard-title">📊 Dashboard</h2>
-          
-          {/* Project Selector */}
-          <select
-            id="project-selector"
-            value={currentProjectId}
-            onChange={handleProjectChange}
-            className="project-selector"
-          >
-            <option value="">Select Project</option>
-            {availableProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.groupId ? '👥 ' : '👤 '}{project.title} ({project.tasks?.length || 0} tasks)
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Top Toolbar */}
+          <div className="dashboard-toolbar">
+            <div className="toolbar-left">
+              <h2 className="dashboard-title">
+                {currentProjectTitle || '📊 Dashboard'}
+              </h2>
+            </div>
 
-        {/* Filter Controls */}
-        {tasks.length > 0 && (
-          <div className="dashboard-header-center">
-            <input
-              type="text"
-              placeholder="🔍 Search tasks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
-            
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="filter-select"
-            >
-              <option value="">All Status</option>
-              <option value="todo">To Do</option>
-              <option value="in-progress">In Progress</option>
-              <option value="done">Done</option>
-            </select>
+            <div className="toolbar-center">
+              {/* View Mode Toggle - Moved to left side */}
+              <div className="view-mode-toggle">
+                <button
+                  className={`toggle-btn ${viewMode === "user-status" ? "active" : ""}`}
+                  onClick={() => setViewMode("user-status")}
+                  title="View by User & Status"
+                >
+                  👥 By User
+                </button>
+                <button
+                  className={`toggle-btn ${viewMode === "status" ? "active" : ""}`}
+                  onClick={() => setViewMode("status")}
+                  title="View by Status Only"
+                >
+                  📋 By Status
+                </button>
+              </div>
 
-            <select
-              value={filterUser}
-              onChange={(e) => setFilterUser(e.target.value)}
-              className="filter-select"
-            >
-              <option value="">All Users</option>
-              {[...new Set(tasks.map(t => t.assignedTo).filter(Boolean))].map(user => (
-                <option key={user} value={user}>{user}</option>
-              ))}
-            </select>
-
-            {(searchQuery || filterStatus || filterUser) && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setFilterStatus("");
-                  setFilterUser("");
-                }}
-                className="btn-clear-filters"
-                title="Clear all filters"
+              <input
+                type="text"
+                placeholder="🔍 Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+              
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="filter-select"
               >
-                ✕
-              </button>
-            )}
+                <option value="">All Status</option>
+                <option value="todo">To Do</option>
+                <option value="in-progress">In Progress</option>
+                <option value="done">Done</option>
+              </select>
+
+              <select
+                value={filterUser}
+                onChange={(e) => setFilterUser(e.target.value)}
+                className="filter-select"
+              >
+                <option value="">All Users</option>
+                {[...new Set(tasks.map(t => t.assignedTo).filter(Boolean))].map(user => (
+                  <option key={user} value={user}>{user}</option>
+                ))}
+              </select>
+
+              {(searchQuery || filterStatus || filterUser) && (
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setFilterStatus("");
+                    setFilterUser("");
+                  }}
+                  className="btn-clear-filters"
+                  title="Clear all filters"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
-        )}
-        
-        {/* View Mode Toggle */}
-        <div className="dashboard-header-right">
-          <div className="view-mode-toggle">
-            <button
-              className={`toggle-btn ${viewMode === "user-status" ? "active" : ""}`}
-              onClick={() => setViewMode("user-status")}
-              title="View by User & Status"
-            >
-              👥 By User
-            </button>
-            <button
-              className={`toggle-btn ${viewMode === "status" ? "active" : ""}`}
-              onClick={() => setViewMode("status")}
-              title="View by Status Only"
-            >
-              📋 By Status
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Guest Mode Notice */}
       {!user && (
@@ -647,6 +862,8 @@ export default function Dashboard({ tasks, setTasks, user }) {
         </div>
       )}
 
+      {/* Only show board when project is selected */}
+      {currentProjectId && (
       <div className="board-wrap" key={`board-${viewMode}`}>
         <DragDropContext onDragEnd={onDragEnd}>
           {viewMode === "user-status" ? (
@@ -688,9 +905,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
           ) : (
             // Regular board view
             <div className="board" style={{ 
-              gridTemplateColumns: viewMode === "user" && columns.length > 3 
-                ? `repeat(${columns.length}, minmax(280px, 1fr))` 
-                : `repeat(${Math.min(columns.length, 3)}, 1fr)` 
+              gridTemplateColumns: `repeat(${columns.length}, 1fr)` 
             }}>
               {columns.length === 0 && viewMode === "user" ? (
                 <div className="empty-state">
@@ -714,65 +929,8 @@ export default function Dashboard({ tasks, setTasks, user }) {
           )}
         </DragDropContext>
       </div>
-      </div>
-
-      {/* Right Sidebar - Tasks To Be Done */}
-      <aside className="dashboard-right-sidebar">
-        <div className="sidebar-section">
-          <div className="milestone-intro">
-            <h3 className="sidebar-title">📋 Tasks Need To Be Done</h3>
-            <p className="milestone-description">All pending tasks for this project</p>
-          </div>
-          
-          {/* Project Overview */}
-          <div className="milestone-header">
-            <div className="milestone-project-info">
-              <div className="milestone-project-label">Current Project</div>
-              <div className="milestone-project-name">
-                {currentProjectTitle || 'No Project Selected'}
-              </div>
-            </div>
-            <div className="milestone-progress-ring">
-              <svg width="70" height="70" viewBox="0 0 70 70">
-                <circle
-                  cx="35"
-                  cy="35"
-                  r="28"
-                  fill="none"
-                  stroke="rgba(255, 255, 255, 0.2)"
-                  strokeWidth="5"
-                />
-                <circle
-                  cx="35"
-                  cy="35"
-                  r="28"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="5"
-                  strokeDasharray={`${tasks.length > 0 ? (tasks.filter(t => t.status === 'done').length / tasks.length) * 176 : 0} 176`}
-                  strokeDashoffset="0"
-                  strokeLinecap="round"
-                  transform="rotate(-90 35 35)"
-                  style={{ transition: 'stroke-dasharray 0.5s ease' }}
-                />
-              </svg>
-              <div className="milestone-progress-percentage">
-                {tasks.length > 0 ? Math.round((tasks.filter(t => t.status === 'done').length / tasks.length) * 100) : 0}%
-              </div>
-            </div>
-            <div className="milestone-project-stats">
-              <div className="milestone-mini-stat">
-                <span className="mini-stat-value">{tasks.length}</span>
-                <span className="mini-stat-label">Total Tasks</span>
-              </div>
-              <div className="milestone-mini-stat">
-                <span className="mini-stat-value">{tasks.filter(t => t.status !== 'done').length}</span>
-                <span className="mini-stat-label">Remaining</span>
-              </div>
-            </div>
-          </div>
+      )}
         </div>
-      </aside>
       </div>
 
       {/* Edit Task Modal */}
@@ -781,6 +939,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
           task={editingTask}
           onClose={() => setEditingTask(null)}
           onSave={handleSaveTask}
+          onDelete={handleDeleteTask}
           teamMembers={[...new Set(tasks.map(t => t.assignedTo).filter(Boolean))]}
         />
       )}

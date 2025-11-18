@@ -49,6 +49,9 @@ firebase_key.json
 .env.test.local
 .env.production.local
 
+# Archived/Backup files
+archive_unused/
+
 # IDE
 .vscode/
 .idea/

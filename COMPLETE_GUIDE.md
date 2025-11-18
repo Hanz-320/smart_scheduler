@@ -26,10 +26,10 @@ A **complete, production-ready full-stack system** with:
 │                                                                   │
 │  ⇅ (Integration)                                                │
 │                                                                   │
-│  🧠 ML MODEL (Random Forest)                                    │
+│  🧠 ML MODELS (Random Forest & Gradient Boosting)               │
 │  ├─ Input: Task characteristics                                 │
-│  ├─ Process: Predict best team member                           │
-│  └─ Output: Assigned user for each task                         │
+│  ├─ Process: Predict best team member & estimate duration       │
+│  └─ Output: Assigned user and duration for each task            │
 │                                                                   │
 │  ⇅ (Calls)                                                       │
 │                                                                   │
@@ -91,12 +91,12 @@ A **complete, production-ready full-stack system** with:
         │   {                                 │
         │     "title": "Setup OAuth",        │
         │     "priority": "high",            │
-        │     "estimated_hours": 8           │
+        │     "type": "backend"              │
         │   },                                │
         │   {                                 │
         │     "title": "Payment module",     │
         │     "priority": "high",            │
-        │     "estimated_hours": 6           │
+        │     "type": "backend"              │
         │   },                                │
         │   ...                               │
         │ ]                                   │
@@ -106,17 +106,15 @@ A **complete, production-ready full-stack system** with:
         │ Input features:                     │
         │  • task_type → encoded              │
         │  • complexity → numeric             │
-        │  • skill_required → encoded         │
-        │  • workload → encoded               │
         │                                      │
         │ ML Model processes:                 │
-        │  [0, 8, 2, 1] → Random Forest      │
+        │  [0, 2] → Random Forest            │
         │                                      │
         │ Output:                             │
-        │  → Alice (Senior Backend dev)      │
-        │  → Bob (Senior Backend dev)        │
-        │  → Diana (Designer)                │
-        │  → Charlie (Full Stack)            │
+        │  → Alice                           │
+        │  → Bob                             │
+        │  → Diana                           │
+        │  → Charlie                         │
         │                                      │
         │ Step 3: Create final tasks         │
         │ ──────────────────────────        │
@@ -232,15 +230,15 @@ POST /generate
 Feature Input              Encoding           Prediction         Output
 ─────────────────────────────────────────────────────────────────────────
 Task Type ("Backend")  →  0 (encoded)  ─┐
-Complexity (8)        →  8 (numeric)   ├─→ RandomForest ─→ [0] ─→ Alice
-Skill Level ("Senior")→  2 (encoded)   ├─→   Classifier      (0=Alice)
-Workload ("High")     →  0 (encoded)   ─┘
+Complexity ("high")   →  2 (encoded)   ├─→ RandomForest ─→ [0] ─→ Alice
+                                       ─┘   Classifier      (0=Alice)
 ```
 
 ---
 
 ## 📊 ML Model Architecture
 
+**Assignment Model**
 **Algorithm:** Random Forest Classifier
 - **Trees:** 100
 - **Max Depth:** 10
@@ -249,9 +247,7 @@ Workload ("High")     →  0 (encoded)   ─┘
 
 **Features (Input):**
 1. Task Type (6 types: Backend, Frontend, Design, Testing, Documentation, DevOps)
-2. Complexity (1-10 scale)
-3. Skill Level (3 levels: Junior, Mid, Senior)
-4. Workload (3 levels: Low, Medium, High)
+2. Complexity (3 levels: low, medium, high)
 
 **Target (Output):**
 - Team Member Name (5 team members: Alice, Bob, Charlie, Diana, Eve)
@@ -259,13 +255,10 @@ Workload ("High")     →  0 (encoded)   ─┘
 **Training Data:**
 - 200 synthetic samples
 - 160 training / 40 test split
-- 76.88% training accuracy
+- 28% training accuracy
 
-**Feature Importance:**
-- Task Type: 34.7% ⭐ Most important
-- Complexity: 33.3%
-- Skill Level: 17.8%
-- Workload: 14.2%
+**Duration Model**
+**Algorithm:** Gradient Boosting Regressor
 
 ---
 
@@ -342,23 +335,18 @@ smart_scheduler/
 │   ├── app.py                     ← Main server
 │   ├── .env                       ← GEMINI_API_KEY
 │   ├── firebase_key.json
-│   ├── model.pkl                  ← Trained model ✅
-│   ├── le_task_type.pkl          ← Encoder ✅
-│   ├── le_skill.pkl              ← Encoder ✅
-│   ├── le_workload.pkl           ← Encoder ✅
-│   ├── le_user.pkl               ← Encoder ✅
+│   ├── duration_model.pkl         ← Trained duration model ✅
+│   ├── assignment_model.pkl       ← Trained assignment model ✅
+│   ├── le_*.pkl                   ← Encoders ✅
 │   └── requirements.txt
 │
 └── ml_model/
-    ├── train_model.py             ← Training script ✅
-    ├── train.bat                  ← Windows runner
+    ├── train_duration_model.py    ← Duration training script ✅
+    ├── train_assignment_model.py  ← Assignment training script ✅
     ├── requirements.txt
     ├── tasks_dataset.csv          ← Training data
     ├── tasks.csv                  ← Sample data
-    ├── README.md
-    ├── model.pkl                  ← Generated
-    ├── le_*.pkl                   ← Generated (×5)
-    └── tasks_dataset.csv          ← Generated
+    └── README.md
 ```
 
 ---

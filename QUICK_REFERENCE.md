@@ -21,8 +21,10 @@ npm run dev
 ### Terminal 3: (Optional) Monitor ML
 ```bash
 cd ml_model
-# Already trained! Trained model is in backend/
-# To retrain: python train_model.py
+# Already trained! Trained models are in backend/ and backend/ml_model
+# To retrain:
+python train_duration_model.py
+python train_assignment_model.py
 ```
 
 ---
@@ -47,8 +49,8 @@ Click **"✨ Generate Tasks with AI"** to try the core feature!
 | **Drag & Drop** | `/dashboard` | ✅ Working |
 | **Add Manual Task** | `/add` | ✅ Working |
 | **Navigation** | All pages | ✅ Working |
-| **Firebase Sync** | All pages | 🔲 Ready (not enabled) |
-| **User Auth** | All pages | 🔲 Ready (not enabled) |
+| **Firebase Sync** | All pages | ✅ Working |
+| **User Auth** | All pages | ✅ Working |
 
 ---
 
@@ -59,7 +61,7 @@ You describe:     → "Build a mobile app"
                     ↓
 Gemini LLM breaks: → "Auth", "Payment", "UI", "Backend"
                     ↓
-ML Model assigns:  → Alice (Backend), Bob (Backend), Diana (UI)
+ML Model assigns:  → Alice, Bob, Diana
                     ↓
 Tasks appear:      → On Dashboard automatically!
 ```
@@ -71,11 +73,10 @@ Tasks appear:      → On Dashboard automatically!
 ```
 Frontend (React)  ←→  Backend (Flask)  ←→  Gemini LLM
                             ↓
-                       ML Model
-                       (RandomForest)
+                       ML Models
+         (RandomForest & Gradient Boosting)
                             ↓
                        Firebase DB
-                       (optional)
 ```
 
 ---
@@ -100,20 +101,22 @@ Frontend (React)  ←→  Backend (Flask)  ←→  Gemini LLM
 2. Click and drag any task card
 3. Drop it in another column (To Do → In Progress → Done)
 
-### I want to retrain the ML model
+### I want to retrain the ML models
 ```bash
 cd ml_model
-# Prepare your data in tasks_dataset.csv
-python train_model.py
-# Copy new model to backend
+# Prepare your data in tasks_dataset.csv and tasks.csv
+python train_duration_model.py
+python train_assignment_model.py
+# Copy new models to backend
 Copy-Item *.pkl -Destination "..\backend\" -Force
+Copy-Item ml_model\*.pkl -Destination "..\backend\ml_model\" -Force
 # Restart backend
 ```
 
 ### I want to improve model accuracy
 1. Collect real task assignment data from your team
 2. Export as `ml_model/tasks_dataset.csv`
-3. Run training: `python ml_model/train_model.py`
+3. Run training: `python ml_model/train_assignment_model.py`
 4. Deploy new model to backend
 
 ---
@@ -160,8 +163,10 @@ python app.py
 |------|---------|
 | `frontend/src/pages/GenerateTasks.jsx` | Core AI feature |
 | `backend/app.py` | Flask API server |
-| `ml_model/train_model.py` | ML training script |
-| `backend/model.pkl` | Trained ML model |
+| `ml_model/train_assignment_model.py` | ML assignment training script |
+| `ml_model/train_duration_model.py` | ML duration training script |
+| `backend/assignment_model.pkl` | Trained assignment model |
+| `backend/duration_model.pkl` | Trained duration model |
 | `backend/.env` | Gemini API key |
 | `SETUP_GUIDE.md` | Full documentation |
 
@@ -182,7 +187,7 @@ Before reporting issues:
 - [ ] Backend running on port 5000?
 - [ ] Frontend running on port 5173?
 - [ ] GEMINI_API_KEY set in `backend/.env`?
-- [ ] ML model files exist in `backend/`?
+- [ ] ML model files exist in `backend/` and `backend/ml_model`?
 - [ ] No errors in browser console (F12)?
 - [ ] No errors in backend terminal?
 
@@ -192,9 +197,9 @@ Before reporting issues:
 
 Everything is set up and ready to use. The system integrates:
 - ✅ Gemini LLM (AI)
-- ✅ Random Forest (ML)
+- ✅ Random Forest & Gradient Boosting (ML)
 - ✅ React + Flask
-- ✅ Firebase (optional)
+- ✅ Firebase
 
 **Start the 3 terminals above and enjoy!** 🎉
 

@@ -5,10 +5,10 @@ A full-stack web platform that combines **AI (Gemini LLM)** and **Kanban-style t
 ## 🎯 Core Features
 
 ✨ **AI-Powered Task Generation** — Describe your project and Gemini LLM breaks it into actionable subtasks  
-🤖 **Smart Task Assignment** — AI assigns tasks to Alice (Frontend), Bob (Backend), or Carol (Design)  
+🤖 **Smart Task Assignment** — A machine learning model assigns tasks to team members based on the task type and complexity.  
 📊 **Kanban Board** — Drag-and-drop interface to manage tasks (To Do → In Progress → Done)  
 🎨 **Interactive UI** — Modern, responsive design with smooth animations  
-💾 **LocalStorage Persistence** — Tasks saved automatically in your browser  
+💾 **Firebase Persistence** — Tasks saved automatically in Firestore.
 ⚡ **Rate Limiting** — Smart API usage management (10 calls/minute)
 
 ## 📁 Project Structure
@@ -39,15 +39,16 @@ smart_scheduler/
 │   ├── requirements.txt
 │   ├── .env                  # GEMINI_API_KEY
 │   ├── firebase_key.json     # Firebase credentials
-│   ├── model.pkl             # ✅ Trained ML model
+│   ├── duration_model.pkl    # ✅ Trained ML model for duration estimation
+│   ├── assignment_model.pkl  # ✅ Trained ML model for assignment
 │   ├── le_*.pkl              # ✅ Label encoders
 │   └── README.md
 │
 ├── ml_model/                 # Machine Learning Pipeline
-│   ├── train_model.py        # ✅ Complete training script
+│   ├── train_duration_model.py # ✅ Training script for duration model
+│   ├── train_assignment_model.py # ✅ Training script for assignment model
 │   ├── requirements.txt
 │   ├── tasks_dataset.csv     # Sample training data
-│   ├── train.bat             # Windows batch runner
 │   └── README.md
 │
 └── SETUP_GUIDE.md            # 📖 Comprehensive setup guide
@@ -61,18 +62,20 @@ smart_scheduler/
 - **Gemini API Key** (get from Google AI Studio)
 - **Firebase Project** (optional, for persistence)
 
-### Step 1: Train ML Model
+### Step 1: Train ML Models
 ```bash
 cd ml_model
 pip install -r requirements.txt
-python train_model.py
+python train_duration_model.py
+python train_assignment_model.py
 ```
 
 This generates:
-- `model.pkl` — Trained Random Forest classifier
-- `le_*.pkl` — Label encoders (5 files)
+- `duration_model.pkl` — Trained Gradient Boosting regressor for task duration.
+- `assignment_model.pkl` — Trained Random Forest classifier for task assignment.
+- `le_*.pkl` — Label encoders.
 
-These are automatically copied to `backend/` ✅
+These are automatically copied to `backend/` and `backend/ml_model` respectively.
 
 ### Step 2: Start Backend (Terminal 1)
 ```bash
@@ -115,17 +118,17 @@ User: "Build a mobile banking app with authentication, payments, and analytics"
             └─────────────────────────────────┘
                               ↓
                   Tasks auto-appear on Dashboard:
-                  - "Setup Firebase Auth" → Alice (Senior Backend)
-                  - "Build Payment Module" → Bob (Senior Backend)
-                  - "Design UI Mockups" → Diana (Designer)
-                  - "Create Analytics Dashboard" → Charlie (Frontend)
+                  - "Setup Firebase Auth" → Charlie
+                  - "Build Payment Module" → Bob
+                  - "Design UI Mockups" → Alice
+                  - "Create Analytics Dashboard" → Diana
 ```
 
 ## 📊 Model Performance
 
-**Model Type:** Random Forest Classifier  
-**Features:** Task Type (34.7%), Complexity (33.3%), Skill Level (17.8%), Workload (14.2%)  
-**Training Accuracy:** 76.88%  
+**Assignment Model Type:** Random Forest Classifier  
+**Features:** Task Type, Complexity  
+**Training Accuracy:** 28%  
 **Data:** 200 synthetic samples (improves with real data)  
 
 To improve accuracy, provide real training data in `ml_model/tasks_dataset.csv` and retrain.
@@ -149,8 +152,8 @@ python app.py        # Start server (debug mode on)
 ### ML Model
 ```bash
 cd ml_model
-python train_model.py    # Train with current data
-# (Or use: train.bat on Windows)
+python train_duration_model.py    # Train duration model
+python train_assignment_model.py  # Train assignment model
 ```
 
 ## 📚 Detailed Documentation
@@ -212,14 +215,16 @@ npm run dev
 
 **Backend errors?**
 - Check `GEMINI_API_KEY` in `backend/.env`
-- Ensure ML model files exist in `backend/`
+- Ensure ML model files exist in `backend/` and `backend/ml_model`
 - Check Python dependencies: `pip install -r requirements.txt`
 
 **ML model not found?**
 ```bash
 cd ml_model
-python train_model.py
+python train_duration_model.py
+python train_assignment_model.py
 Copy-Item *.pkl -Destination "..\backend\" -Force
+Copy-Item ml_model\*.pkl -Destination "..\backend\ml_model\" -Force
 ```
 
 **Tasks not generating?**
@@ -235,4 +240,4 @@ For detailed setup instructions, see **[SETUP_GUIDE.md](./SETUP_GUIDE.md)**
 
 **Built with:** React • Flask • Random Forest • Gemini LLM • Firebase • Vite  
 **Status:** ✅ Production-Ready (Phase 1)  
-**Last Updated:** November 2025\n
+**Last Updated:** November 2025
