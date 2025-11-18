@@ -205,7 +205,13 @@ export default function Dashboard({ tasks, setTasks, user }) {
     } else if (viewMode === "user") {
       // User view mode - get unique assignees, excluding status values
       const statusValues = ["todo", "in-progress", "done"];
-      const assignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !statusValues.includes(a)))];
+      let assignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !statusValues.includes(a)))];
+      
+      // If user filter is active, show only that user's column
+      if (filterUser) {
+        assignees = assignees.filter(a => a === filterUser);
+      }
+      
       return assignees.map(assignee => ({
         id: assignee,
         title: `👤 ${assignee}`,
@@ -213,7 +219,13 @@ export default function Dashboard({ tasks, setTasks, user }) {
     } else {
       // user-status view: Group by user, then by status within each user
       const statusValues = ["todo", "in-progress", "done"];
-      const assignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !statusValues.includes(a)))];
+      let assignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !statusValues.includes(a)))];
+      
+      // If user filter is active, show only that user's columns
+      if (filterUser) {
+        assignees = assignees.filter(a => a === filterUser);
+      }
+      
       const columns = [];
       
       assignees.forEach(assignee => {
@@ -870,8 +882,13 @@ export default function Dashboard({ tasks, setTasks, user }) {
             // User-Status grouped view
             <div className="user-grouped-board">
               {(() => {
-                // Get all unique assignees
-                const allAssignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !["todo", "in-progress", "done"].includes(a)))];
+                // Get all unique assignees, filtered by user filter if set
+                let allAssignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !["todo", "in-progress", "done"].includes(a)))];
+                
+                // If user filter is active, show only that user's kanban
+                if (filterUser) {
+                  allAssignees = allAssignees.filter(a => a === filterUser);
+                }
                 
                 return allAssignees.map(assignee => (
                   <div key={assignee} className="user-group">

@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests, json, time, re, os, pickle
+import requests, json, time, re, os, pickle, random
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -262,8 +262,8 @@ def get_user_info(user_id):
 def assign_user(task, team_members):
     """Use ML model to assign a user to a task."""
     if not assignment_model or not le_assignee_assignment or not le_task_type_assignment:
-        # Fallback to round-robin if model is not loaded
-        return team_members[len(tasks) % len(team_members)] if team_members else "Unassigned"
+        # Fallback to random assignment if model is not loaded
+        return random.choice(team_members) if team_members else "Unassigned"
 
     try:
         # Extract features
@@ -287,15 +287,15 @@ def assign_user(task, team_members):
         if team_members and predicted_user in team_members:
             return predicted_user
         elif team_members:
-            # If the predicted user is not in the team, fallback to round-robin
-            return team_members[len(tasks) % len(team_members)]
+            # If the predicted user is not in the team, fallback to random selection
+            return random.choice(team_members)
         else:
             return "Unassigned"
 
     except Exception as e:
         print(f"⚠️ User assignment error: {e}")
-        # Fallback to round-robin on error
-        return team_members[len(tasks) % len(team_members)] if team_members else "Unassigned"
+        # Fallback to random selection on error
+        return random.choice(team_members) if team_members else "Unassigned"
 
 @app.route("/generate", methods=["POST"])
 def generate():

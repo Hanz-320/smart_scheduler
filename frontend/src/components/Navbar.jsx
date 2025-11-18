@@ -16,7 +16,7 @@ const NavLink = ({ to, children }) => {
 
 export default function Navbar({ user, setUser }) {
   const navigate = useNavigate();
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark } = useTheme();
 
   const handleLogout = async () => {
     try {
@@ -115,16 +115,6 @@ export default function Navbar({ user, setUser }) {
             </Link>
           </>
         )}
-        
-        {/* Dark Mode Toggle */}
-        <button 
-          onClick={toggleTheme}
-          className="theme-toggle"
-          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          aria-label="Toggle dark mode"
-        >
-          {isDark ? "☀️" : "🌙"}
-        </button>
       </nav>
     </header>
   );
