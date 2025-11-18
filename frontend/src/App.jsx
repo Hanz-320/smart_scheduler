@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
-import { ThemeProvider } from "./contexts/ThemeContext";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Home from "./pages/Home";
@@ -96,7 +95,6 @@ function App() {
   }
 
   return (
-    <ThemeProvider>
       <Router>
         <div className="app-root">
           <Navbar user={user} setUser={setUser} />
@@ -116,7 +114,6 @@ function App() {
           <Footer />
         </div>
       </Router>
-    </ThemeProvider>
   );
 }
 

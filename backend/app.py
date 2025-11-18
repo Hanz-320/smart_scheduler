@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import requests, json, time, re, os, pickle, random
 from dotenv import load_dotenv
 import firebase_admin
@@ -894,6 +894,39 @@ def delete_group(group_id):
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ============================================
+# CONTACT FORM ENDPOINT
+# ============================================
+@app.route("/api/contact", methods=["POST", "OPTIONS"])
+@cross_origin()
+def contact_form():
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    
+    try:
+        data = request.json
+        name = data.get("name")
+        email = data.get("email")
+        message = data.get("message")
+
+        if not all([name, email, message]):
+            return jsonify({"error": "Name, email, and message are required."}), 400
+
+        contact_ref = db.collection("contacts").document()
+        contact_ref.set({
+            "name": name,
+            "email": email,
+            "message": message,
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "read": False # To track if the message has been read
+        })
+        
+        return jsonify({"success": True, "message": "Message received!"}), 201
+    except Exception as e:
+        print(f"❌ Contact form error: {e}")
+        return jsonify({"error": "An internal error occurred."}), 500
+
 
 if __name__ == "__main__":
     print("✓ Starting Smart Scheduler API")

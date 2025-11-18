@@ -1,7 +1,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -19,19 +19,9 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
-const db = getFirestore(app);
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache(/*{ tabManager: persistentMultipleTabManager() }*/)
+});
 const auth = getAuth(app);
-
-// Enable offline persistence for instant updates
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('⚠️ Multiple tabs open, persistence only in first tab');
-    } else if (err.code === 'unimplemented') {
-      console.warn('⚠️ Browser doesn\'t support persistence');
-    } else {
-      console.error('❌ Persistence error:', err);
-    }
-  });
 
 export { app, db, auth };

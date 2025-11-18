@@ -424,7 +424,7 @@ export default function Profile({ user }) {
                   If you have any questions or need assistance, feel free to reach out to our support team.
                 </p>
                 <button 
-                  onClick={() => window.open('mailto:support@smartscheduler.com', '_blank')}
+                  onClick={() => navigate('/contact')}
                   style={{
                     padding: '14px 28px',
                     background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
@@ -450,7 +450,7 @@ export default function Profile({ user }) {
                   }}
                 >
                   <span>📧</span>
-                  <span>Contact Support</span>
+                  <span>Contact Us</span>
                 </button>
               </div>
             </div>

@@ -2,7 +2,6 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
-import { useTheme } from "../contexts/ThemeContext";
 
 const NavLink = ({ to, children }) => {
   const loc = useLocation();
@@ -16,7 +15,6 @@ const NavLink = ({ to, children }) => {
 
 export default function Navbar({ user, setUser }) {
   const navigate = useNavigate();
-  const { isDark } = useTheme();
 
   const handleLogout = async () => {
     try {

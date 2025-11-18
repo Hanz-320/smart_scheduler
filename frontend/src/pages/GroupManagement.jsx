@@ -615,56 +615,42 @@ export default function GroupManagement({ user }) {
 
       {/* Create Group Modal */}
       {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Create New Group</h2>
-              <button 
-                className="modal-close"
-                onClick={() => setShowCreateModal(false)}
-              >
-                ✕
+        <div className="modal-overlay-new">
+          <div className="modal-content-new">
+            <div className="modal-header-new">
+              <h3>Create a New Group</h3>
+              <p>Organize your projects by creating a group for your team.</p>
+              <button className="modal-close-new" onClick={() => setShowCreateModal(false)}>
+                &times;
               </button>
             </div>
-
-            <form onSubmit={createGroup}>
-              <div className="form-group">
-                <label htmlFor="groupName">Group Name *</label>
+            <form onSubmit={createGroup} className="modal-form-new">
+              <div className="form-group-new">
+                <label htmlFor="groupName">Group Name</label>
                 <input
                   id="groupName"
                   type="text"
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="E.g., Web Development Team"
+                  placeholder="e.g., Q4 Marketing Campaign"
                   required
-                  autoFocus
                 />
               </div>
-
-              <div className="form-group">
+              <div className="form-group-new">
                 <label htmlFor="groupDescription">Description (Optional)</label>
                 <textarea
                   id="groupDescription"
                   value={newGroupDescription}
                   onChange={(e) => setNewGroupDescription(e.target.value)}
-                  placeholder="Brief description of the group..."
-                  rows="3"
+                  placeholder="A brief summary of what this group is for."
+                  rows="4"
                 ></textarea>
               </div>
-
-              <div className="modal-actions">
-                <button 
-                  type="button" 
-                  className="btn btn-ghost"
-                  onClick={() => setShowCreateModal(false)}
-                >
+              <div className="modal-actions-new">
+                <button type="button" className="btn-secondary-new" onClick={() => setShowCreateModal(false)}>
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
-                  disabled={loading}
-                >
+                <button type="submit" className="btn-primary-new" disabled={loading}>
                   {loading ? "Creating..." : "Create Group"}
                 </button>
               </div>

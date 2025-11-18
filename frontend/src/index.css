@@ -25,27 +25,6 @@
 
 /* Light Mode (Default) */
 :root {
-  --bg: #f7f9fb;
-  --bg-secondary: #ffffff;
-  --card: #ffffff;
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --border: #e2e8f0;
-  --border-hover: #cbd5e1;
-  --accent: #667eea;
-  --accent-hover: #5568d3;
-  --danger: #ef4444;
-  --danger-hover: #dc2626;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --shadow: rgba(15, 23, 42, 0.08);
-  --shadow-hover: rgba(15, 23, 42, 0.12);
-  --radius: 12px;
-}
-
-/* Dark Mode */
-.dark-mode {
   --bg: #0f172a;
   --bg-secondary: #1e293b;
   --card: #1e293b;
@@ -62,6 +41,7 @@
   --warning: #fbbf24;
   --shadow: rgba(0, 0, 0, 0.3);
   --shadow-hover: rgba(0, 0, 0, 0.4);
+  --radius: 12px;
 }
 
 /* ============================================

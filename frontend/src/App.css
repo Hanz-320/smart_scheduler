@@ -245,9 +245,9 @@ body {
   padding-right: 40px;
 }
 
-.dark-mode .task-form select,
-.dark-mode .contact-form select,
-.dark-mode .generate-form select {
+.task-form select,
+.contact-form select,
+.generate-form select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23818cf8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
@@ -282,12 +282,12 @@ body {
   opacity: 0.7;
 }
 
-.dark-mode .task-form input::placeholder,
-.dark-mode .task-form textarea::placeholder,
-.dark-mode .contact-form input::placeholder,
-.dark-mode .contact-form textarea::placeholder,
-.dark-mode .generate-form input::placeholder,
-.dark-mode .generate-form textarea::placeholder {
+.task-form input::placeholder,
+.task-form textarea::placeholder,
+.contact-form input::placeholder,
+.contact-form textarea::placeholder,
+.generate-form input::placeholder,
+.generate-form textarea::placeholder {
   color: var(--text-muted);
   opacity: 0.6;
 }
@@ -299,8 +299,8 @@ input[type="date"],
   cursor: pointer;
 }
 
-.dark-mode input[type="date"],
-.dark-mode .date-input {
+input[type="date"],
+.date-input {
   color-scheme: dark;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -410,8 +410,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #991b1b;
 }
 
-.dark-mode .alert-error,
-.dark-mode .error-msg {
+.alert-error,
+.error-msg {
   background: #450a0a;
   border-color: #7f1d1d;
   color: #fca5a5;
@@ -423,7 +423,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #065f46;
 }
 
-.dark-mode .alert-success {
+.alert-success {
   background: #022c22;
   border-color: #064e3b;
   color: #6ee7b7;
@@ -438,12 +438,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border: 1px solid var(--border);
 }
 
-.dark-mode .info-box {
+.info-box {
   background: rgba(102, 126, 234, 0.15);
   border: 1px solid rgba(102, 126, 234, 0.3);
 }
 
-.dark-mode .info-box h4 {
+.info-box h4 {
   color: #a5b4fc;
 }
 
@@ -465,7 +465,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   gap: 12px;
 }
 
-.dark-mode .guest-notice {
+.guest-notice {
   background: linear-gradient(135deg, #451a03 0%, #78350f 100%);
   border-color: #d97706;
   color: #fef3c7;
@@ -1196,19 +1196,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
 }
 
-.dark-mode .priority-high {
+.priority-high {
   background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;
   border-color: rgba(239, 68, 68, 0.3);
 }
 
-.dark-mode .priority-medium {
+.priority-medium {
   background: rgba(251, 191, 36, 0.2);
   color: #fbbf24;
   border-color: rgba(251, 191, 36, 0.3);
 }
 
-.dark-mode .priority-low {
+.priority-low {
   background: rgba(16, 185, 129, 0.2);
   color: #6ee7b7;
   border-color: rgba(16, 185, 129, 0.3);
@@ -1226,7 +1226,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border: 1px solid rgba(102, 126, 234, 0.3);
 }
 
-.dark-mode .task-type {
+.task-type {
   background: rgba(100, 116, 139, 0.2);
   color: #94a3b8;
   border-color: rgba(100, 116, 139, 0.3);
@@ -1996,12 +1996,167 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   transform: scale(1.1);
 }
 
-.loading-state,
-.empty-state {
-  padding: 40px 20px;
-  text-align: center;
-  color: var(--text-muted);
+/* ============================================
+   NEW MODERN MODAL STYLES
+   ============================================ */
+
+.modal-overlay-new {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(5px);
+  animation: fadeIn 0.3s ease;
 }
+
+.modal-content-new {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 500px;
+  border: 1px solid var(--border);
+  animation: slideDown 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  overflow: hidden;
+}
+
+.modal-header-new {
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  text-align: center;
+}
+
+.modal-header-new h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.modal-header-new p {
+  margin: 8px 0 0 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.modal-close-new {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close-new:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+.modal-form-new {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group-new label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.form-group-new input,
+.form-group-new textarea {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.form-group-new input:focus,
+.form-group-new textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
+}
+
+.form-group-new textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.modal-actions-new {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btn-primary-new,
+.btn-secondary-new {
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.btn-primary-new {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-primary-new:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(129, 140, 248, 0.3);
+}
+
+.btn-primary-new:disabled {
+  background: var(--border);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-secondary-new {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary-new:hover {
+  background: var(--bg);
+  border-color: var(--border-hover);
+}
+
+
 
 .empty-state p {
   margin: 0 0 16px 0;
@@ -2137,7 +2292,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: not-allowed;
 }
 
-.dark-mode .admin-role-section .form-group select {
+.admin-role-section .form-group select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23818cf8' d='M7 10L2 5h10z'/%3E%3C/svg%3E");
 }
 
@@ -2270,7 +2425,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   z-index: 100;
 }
 
-.dark-mode .add-member-form .form-group select {
+.add-member-form .form-group select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23818cf8' d='M7 10L2 5h10z'/%3E%3C/svg%3E");
 }
 
@@ -2411,7 +2566,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   padding-right: 32px;
 }
 
-.dark-mode .role-dropdown {
+.role-dropdown {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23818cf8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
@@ -2466,7 +2621,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background-color: #f9fafb;
 }
 
-.dark-mode .profile-page {
+.profile-page {
   background-color: #111827;
 }
 
@@ -2487,7 +2642,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   margin: 24px 0;
 }
 
-.dark-mode .divider {
+.divider {
   background-color: #374151;
 }
 
@@ -2498,7 +2653,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
-.dark-mode .card {
+.card {
   background-color: #1f2937;
 }
 
@@ -2508,7 +2663,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #6b7280;
 }
 
-.dark-mode .btn-outline {
+.btn-outline {
   border-color: #9ca3af;
   color: #9ca3af;
 }
@@ -2517,7 +2672,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background-color: #f3f4f6;
 }
 
-.dark-mode .btn-outline:hover {
+.btn-outline:hover {
   background-color: #374151;
 }
 

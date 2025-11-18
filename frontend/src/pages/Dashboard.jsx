@@ -4,12 +4,10 @@ import Column from "../components/Column";
 import EditTaskModal from "../components/EditTaskModal";
 import AddTaskModal from "../components/AddTaskModal";
 import axios from "axios";
-import { useTheme } from "../contexts/ThemeContext";
 
 const BACKEND_URL = "http://localhost:5000";
 
 export default function Dashboard({ tasks, setTasks, user }) {
-  const { isDark } = useTheme();
   const [viewMode, setViewMode] = useState(() => {
     return localStorage.getItem("dashboardViewMode") || "user-status";
   });
