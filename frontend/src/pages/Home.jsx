@@ -496,6 +496,9 @@ export default function Home({ addTasks, user }) {
               rows="6"
               disabled={loading}
             ></textarea>
+            <small className="form-hint" style={{ marginTop: '8px', display: 'block' }}>
+              Note: The AI's output is based on your prompt. Results may need refinement.
+            </small>
           </div>
 
           <div className="form-group">

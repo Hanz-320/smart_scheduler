@@ -60,7 +60,7 @@ def call_gemini(prompt, max_retries=5):
         try:
             response = requests.post(GEMINI_URL, json={
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.5, "maxOutputTokens": 409600}
+                "generationConfig": {"temperature": 0.5, "maxOutputTokens": 65535}
             }, timeout=180)  # 3 minutes timeout
             
             print(f"📡 API Response Status: {response.status_code} (Attempt {attempt + 1}/{max_retries})")
@@ -351,6 +351,7 @@ def generate():
     
     # Generate tasks with STRICT naming requirements and sequential workflow
     prompt = f"""Generate a detailed project plan with tasks as a JSON array of objects. The project is about: {base_description}.
+The project plan must contain between 25 and 35 tasks.
 Each task object should have the following fields: "title", "priority", "estimatedDuration", "type", and "assigned_user".
 Assign tasks to the following team members: {', '.join(member_names) if member_names else 'Unassigned'}.
 Ensure the tasks are in a logical sequence.
@@ -366,6 +367,7 @@ Return ONLY the JSON array with no markdown formatting."""
         # Clean the result to get a valid JSON
         json_str = re.search(r'\[.*\]', result, re.DOTALL).group(0)
         tasks_data = json.loads(json_str)
+        tasks_data = tasks_data[:35]  # Hard limit to 35 tasks
     except (json.JSONDecodeError, AttributeError):
         return jsonify({"error": "Failed to parse AI response. Please try again."}), 500
 
@@ -378,12 +380,15 @@ Return ONLY the JSON array with no markdown formatting."""
         # Parse duration
         duration = t.get("estimatedDuration", "3 hours")
         hours = 3
-        if "hour" in duration:
-            hours = int(re.search(r'\d+', duration).group()) if re.search(r'\d+', duration) else 3
-        elif "day" in duration:
-            hours = int(re.search(r'\d+', duration).group()) * 8 if re.search(r'\d+', duration) else 24
-        elif "week" in duration:
-            hours = int(re.search(r'\d+', duration).group()) * 40 if re.search(r'\d+', duration) else 40
+        if isinstance(duration, str):
+            if "hour" in duration:
+                hours = int(re.search(r'\d+', duration).group()) if re.search(r'\d+', duration) else 3
+            elif "day" in duration:
+                hours = int(re.search(r'\d+', duration).group()) * 8 if re.search(r'\d+', duration) else 24
+            elif "week" in duration:
+                hours = int(re.search(r'\d+', duration).group()) * 40 if re.search(r'\d+', duration) else 40
+        elif isinstance(duration, (int, float)):
+            hours = duration
         
         # Get task type from AI (now using "type" field)
         task_type = t.get("type", t.get("task_type", "backend"))

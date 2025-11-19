@@ -100,7 +100,7 @@ function App() {
           <Navbar user={user} setUser={setUser} />
           <main className="main-content">
           <Routes>
-            <Route path="/" element={<Home addTasks={(newTasks) => setTasks([...tasks, ...newTasks])} user={user} />} />
+            <Route path="/" element={<Home addTasks={(newTasks) => setTasks(newTasks)} user={user} />} />
             <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login setUser={setUser} />} />
             <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <Register />} />
             <Route path="/dashboard" element={<Dashboard tasks={tasks} setTasks={updateTasks} user={user} />} />
