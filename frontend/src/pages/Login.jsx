@@ -37,9 +37,8 @@ export default function Login({ setUser }) {
       navigate("/dashboard");
 
     } catch (err) {
-      console.error("Login error:", err);
-      
-      if (err.code === "auth/user-not-found" || err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      console.error("Login error:", err.code);
+      if (err.code === "auth/invalid-credential" || err.code === "auth/invalid-login-credentials") {
         setError("Invalid email or password. Please try again.");
       } else if (err.code === "auth/invalid-email") {
         setError("Please enter a valid email address.");

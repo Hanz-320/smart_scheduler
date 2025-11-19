@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { FiZap } from "react-icons/fi";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
@@ -17,6 +18,13 @@ export default function Home({ addTasks, user }) {
   const [loadingProjects, setLoadingProjects] = useState(false);
   const hasLoaded = useRef(false);
   const navigate = useNavigate();
+
+  // Set default due date on component load for all users
+  useEffect(() => {
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() + 7);
+    setDueDate(defaultDate.toISOString().split("T")[0]);
+  }, []);
 
   // Load saved projects and groups from Firebase
   useEffect(() => {
@@ -38,10 +46,6 @@ export default function Home({ addTasks, user }) {
     loadProjectsFromFirebase();
     loadGroups();
     
-    // Set default due date to 7 days from now
-    const defaultDate = new Date();
-    defaultDate.setDate(defaultDate.getDate() + 7);
-    setDueDate(defaultDate.toISOString().split("T")[0]);
   }, [user]);
 
   const loadProjectsFromFirebase = async () => {
@@ -120,8 +124,11 @@ export default function Home({ addTasks, user }) {
   const handleGenerate = async (e) => {
     e.preventDefault();
     
+    console.log("--- GUEST MODE DEBUG: Starting handleGenerate ---");
+
     if (!projectTitle.trim()) {
       setError("Please enter a project title");
+      console.log("--- GUEST MODE DEBUG: Exited - No project title ---");
       return;
     }
 
@@ -155,6 +162,7 @@ export default function Home({ addTasks, user }) {
     
     setError("");
     setLoading(true);
+    console.log("--- GUEST MODE DEBUG: Loading state set to true. Calling backend... ---");
 
     try {
       // Send clean description, team members, and current user info
@@ -168,7 +176,7 @@ export default function Home({ addTasks, user }) {
         } : null
       });
 
-      console.log("📥 Received tasks:", response.data.tasks);
+      console.log("--- GUEST MODE DEBUG: Backend response received ---", response.data);
 
       const generatedTasks = response.data.tasks || [];
       
@@ -216,6 +224,7 @@ export default function Home({ addTasks, user }) {
 
       // Only save to Firebase if user is logged in
       if (user) {
+        console.log("--- GUEST MODE DEBUG: User is logged in. Saving project... ---");
         try {
           const saveResponse = await axios.post(`${BACKEND_URL}/api/projects`, project);
           console.log("✅ Project saved to Firebase:", saveResponse.data);
@@ -235,17 +244,19 @@ export default function Home({ addTasks, user }) {
         }
       } else {
         // Guest mode - tasks only in memory (not saved)
-        console.log("ℹ️ Guest mode: Tasks generated but not saved (login to save)");
+        console.log("--- GUEST MODE DEBUG: Guest user. Storing project title in localStorage. ---");
         localStorage.setItem("currentProjectTitle", projectTitle);
       }
 
+      console.log("--- GUEST MODE DEBUG: Calling addTasks and navigating to dashboard... ---");
       addTasks(formattedTasks);
 
       navigate("/dashboard");
     } catch (err) {
-      console.error("Error generating tasks:", err);
+      console.error("--- GUEST MODE DEBUG: An error occurred in handleGenerate ---", err);
       setError(err.response?.data?.error || "Failed to generate tasks. Ensure the backend is running and accessible.");
     } finally {
+      console.log("--- GUEST MODE DEBUG: Finished handleGenerate. Setting loading to false. ---");
       setLoading(false);
     }
   };
@@ -535,12 +546,15 @@ export default function Home({ addTasks, user }) {
           >
             {loading ? (
               <>
-                <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>🔄</span>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
                 Generating...
               </>
             ) : (
               <>
-                <span>🚀</span>
+                <FiZap className="mr-2" />
                 Generate Tasks
               </>
             )}

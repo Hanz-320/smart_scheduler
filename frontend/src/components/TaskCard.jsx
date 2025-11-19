@@ -9,8 +9,14 @@ export default function TaskCard({ task, index, user, onEdit, viewMode, taskNumb
     Low: "priority-low",
   }[task.priority] || "priority-low";
 
-  // Check if this task is assigned to the current user
-  const isMyTask = user && (task.assignedTo === user.username || task.assignedTo === user.email);
+  // Determine if this task is assigned to the current user (guest or logged-in)
+  let isMyTask = false;
+  if (user) { // Logged-in user
+    isMyTask = (task.assignedTo === user.username || task.assignedTo === user.email);
+  } else { // Guest user
+    // For guests, all tasks are "Unassigned" and are considered "their" tasks
+    isMyTask = (task.assignedTo === "Unassigned");
+  }
 
   return (
     <div 
@@ -30,10 +36,8 @@ export default function TaskCard({ task, index, user, onEdit, viewMode, taskNumb
       
       <h4 className="task-title">{task.title}</h4>
       
-      {task.description && <p className="task-desc">{task.description}</p>}
-      
       <div className="task-meta">
-        <small>👤 <strong>{task.assignedTo || "—"}</strong> {isMyTask && <span className="you-badge">You</span>}</small>
+        <small>👤 <strong>{isMyTask ? "YOU" : (task.assignedTo || "Unassigned")}</strong></small>
         {task.due && <small>📅 <strong>{task.due}</strong></small>}
       </div>
 
