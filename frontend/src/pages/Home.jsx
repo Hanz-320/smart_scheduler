@@ -254,7 +254,16 @@ export default function Home({ addTasks, user }) {
       navigate("/dashboard");
     } catch (err) {
       console.error("--- GUEST MODE DEBUG: An error occurred in handleGenerate ---", err);
-      setError(err.response?.data?.error || "Failed to generate tasks. Ensure the backend is running and accessible.");
+      if (err.response && err.response.data && err.response.data.error) {
+        // Specific error message from the backend (e.g., validation error)
+        setError(err.response.data.error);
+      } else if (err.response) {
+        // The backend responded with an error, but not in the expected format
+        setError(`An unexpected error occurred. Status: ${err.response.status}`);
+      } else {
+        // No response from the backend at all (network error, CORS, etc.)
+        setError("Failed to connect to the backend. Please ensure it is running and accessible.");
+      }
     } finally {
       console.log("--- GUEST MODE DEBUG: Finished handleGenerate. Setting loading to false. ---");
       setLoading(false);

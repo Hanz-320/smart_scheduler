@@ -298,6 +298,7 @@ def assign_user(task, team_members):
         return random.choice(team_members) if team_members else "Unassigned"
 
 @app.route("/generate", methods=["POST"])
+@cross_origin()
 def generate():
     data = request.get_json()
     description = data.get("description", "").strip()
@@ -310,8 +311,13 @@ def generate():
     if len(description) < 10:
         return jsonify({"error": "Description too short (min 10 chars)"}), 400
     
-    if len(description.split()) < 3:
-        return jsonify({"error": "Description too vague (min 3 words)"}), 400
+    words = description.split()
+    if len(words) < 5:
+        return jsonify({"error": "Description too vague (min 5 words)"}), 400
+
+    unique_words = set(words)
+    if len(unique_words) < 3:
+        return jsonify({"error": "Description seems repetitive or is too simple. Please be more descriptive."}), 400
     
     # Build team context for AI - extract just the project description without team info
     base_description = description.split('\n\nTeam Members')[0] if '\n\nTeam Members' in description else description
