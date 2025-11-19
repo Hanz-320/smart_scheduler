@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
 export default function GenerateTasks({ addTasks }) {
   const [projectTitle, setProjectTitle] = useState("");
@@ -59,7 +59,7 @@ export default function GenerateTasks({ addTasks }) {
 
     try {
       // Call backend /generate endpoint
-      const response = await axios.post("http://localhost:5000/generate", {
+      const response = await axios.post(`${BACKEND_URL}/generate`, {
         description,
       });
 
@@ -134,7 +134,7 @@ export default function GenerateTasks({ addTasks }) {
       navigate("/dashboard");
     } catch (err) {
       console.error("Error generating tasks:", err);
-      setError(err.response?.data?.error || "Failed to generate tasks. Ensure backend is running on http://localhost:5000");
+      setError(err.response?.data?.error || "Failed to generate tasks. Ensure the backend is running and accessible.");
     } finally {
       setLoading(false);
     }
@@ -327,7 +327,7 @@ export default function GenerateTasks({ addTasks }) {
           <li><strong>ML Model:</strong> Analyzes task complexity and assigns to optimal team members.</li>
           <li><strong>Auto-assign:</strong> Tasks appear in your dashboard ready to manage.</li>
         </ul>
-        <p className="muted">💡 Backend must be running on http://localhost:5000 for this feature to work.</p>
+        <p className="muted">💡 This feature requires a running backend.</p>
       </div>
     </div>
   );

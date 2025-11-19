@@ -5,7 +5,7 @@ import EditTaskModal from "../components/EditTaskModal";
 import AddTaskModal from "../components/AddTaskModal";
 import axios from "axios";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
 export default function Dashboard({ tasks, setTasks, user }) {
   const [viewMode, setViewMode] = useState(() => {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
 export default function Home({ addTasks, user }) {
   const [projectTitle, setProjectTitle] = useState("");
@@ -158,7 +158,7 @@ export default function Home({ addTasks, user }) {
 
     try {
       // Send clean description, team members, and current user info
-      const response = await axios.post("http://localhost:5000/generate", {
+      const response = await axios.post(`${BACKEND_URL}/generate`, {
         description: description,
         teamMembers: teamMembers,
         currentUser: user ? {
@@ -244,7 +244,7 @@ export default function Home({ addTasks, user }) {
       navigate("/dashboard");
     } catch (err) {
       console.error("Error generating tasks:", err);
-      setError(err.response?.data?.error || "Failed to generate tasks. Ensure backend is running on http://localhost:5000");
+      setError(err.response?.data?.error || "Failed to generate tasks. Ensure the backend is running and accessible.");
     } finally {
       setLoading(false);
     }

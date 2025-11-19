@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { auth } from "../firebase";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
 const WORK_ROLES = [
   "Software Engineer",
@@ -394,10 +394,10 @@ export default function GroupManagement({ user }) {
           {loading && groups.length === 0 ? (
             <div className="loading-state">Loading groups...</div>
           ) : groups.length === 0 ? (
-            <div className="empty-state">
-              <p>No groups yet</p>
+            <div className="flex flex-col items-center justify-center p-6 text-center bg-slate-800 rounded-lg border border-slate-700">
+              <p className="text-slate-300 text-lg mb-4">No groups yet</p>
               <button 
-                className="btn btn-primary"
+                className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition"
                 onClick={() => setShowCreateModal(true)}
               >
                 Create Your First Group
