@@ -21,9 +21,12 @@ smart_scheduler/
 │   │   │   ├── Home.jsx          # Landing page
 │   │   │   ├── GenerateTasks.jsx # ⭐ Core AI feature
 │   │   │   ├── Dashboard.jsx     # Kanban board
-│   │   │   ├── AddTask.jsx       # Manual task creation
 │   │   │   ├── About.jsx
-│   │   │   └── Contact.jsx
+│   │   │   ├── Contact.jsx
+│   │   │   ├── Login.jsx
+│   │   │   ├── Register.jsx
+│   │   │   ├── Profile.jsx
+│   │   │   └── GroupManagement.jsx
 │   │   ├── components/
 │   │   │   ├── Navbar.jsx
 │   │   │   ├── Footer.jsx
@@ -39,17 +42,12 @@ smart_scheduler/
 │   ├── requirements.txt
 │   ├── .env                  # GEMINI_API_KEY
 │   ├── firebase_key.json     # Firebase credentials
-│   ├── duration_model.pkl    # ✅ Trained ML model for duration estimation
-│   ├── assignment_model.pkl  # ✅ Trained ML model for assignment
-│   ├── le_*.pkl              # ✅ Label encoders
-│   └── README.md
+│   └── duration_artifacts.pkl # ✅ Trained ML model for duration estimation
 │
 ├── ml_model/                 # Machine Learning Pipeline
 │   ├── train_duration_model.py # ✅ Training script for duration model
-│   ├── train_assignment_model.py # ✅ Training script for assignment model
 │   ├── requirements.txt
-│   ├── tasks_dataset.csv     # Sample training data
-│   └── README.md
+│   └── tasks.csv             # Sample training data
 │
 └── SETUP_GUIDE.md            # 📖 Comprehensive setup guide
 ```
@@ -62,20 +60,18 @@ smart_scheduler/
 - **Gemini API Key** (get from Google AI Studio)
 - **Firebase Project** (optional, for persistence)
 
-### Step 1: Train ML Models
+### Step 1: Train ML Model (Optional)
 ```bash
 cd ml_model
 pip install -r requirements.txt
 python train_duration_model.py
-python train_assignment_model.py
 ```
 
-This generates:
-- `duration_model.pkl` — Trained Gradient Boosting regressor for task duration.
-- `assignment_model.pkl` — Trained Random Forest classifier for task assignment.
-- `le_*.pkl` — Label encoders.
+This generates `duration_artifacts.pkl` containing:
+- Trained Gradient Boosting regressor for task duration estimation
+- Label encoders for task types, assignees, etc.
 
-These are automatically copied to `backend/` and `backend/ml_model` respectively.
+The model is automatically copied to `backend/` folder.
 
 ### Step 2: Start Backend (Terminal 1)
 ```bash
@@ -153,14 +149,12 @@ python app.py        # Start server (debug mode on)
 ```bash
 cd ml_model
 python train_duration_model.py    # Train duration model
-python train_assignment_model.py  # Train assignment model
 ```
 
 ## 📚 Detailed Documentation
 
-- **Setup Instructions:** See [SETUP_GUIDE.md](./SETUP_GUIDE.md)
-- **ML Training Guide:** See [ml_model/README.md](./ml_model/README.md)
-- **Backend API Docs:** See [backend/README.md](./backend) (if exists)
+- **Backend API:** Flask server with Gemini integration and Firebase
+- **ML Model:** Duration estimation using Gradient Boosting
 
 ## 🔐 Configuration
 
@@ -178,8 +172,8 @@ python train_assignment_model.py  # Train assignment model
 - Firebase: `backend/firebase_key.json`
 
 ### ML Model
-- Training data: `ml_model/tasks_dataset.csv`
-- Output: `ml_model/*.pkl` files (copied to backend)
+- Training data: `ml_model/tasks.csv`
+- Output: `duration_artifacts.pkl` (copied to backend)
 
 ## 🚧 What's Included (Phase 1)
 
@@ -222,9 +216,7 @@ npm run dev
 ```bash
 cd ml_model
 python train_duration_model.py
-python train_assignment_model.py
-Copy-Item *.pkl -Destination "..\backend\" -Force
-Copy-Item ml_model\*.pkl -Destination "..\backend\ml_model\" -Force
+Copy-Item duration_artifacts.pkl -Destination "..\backend\" -Force
 ```
 
 **Tasks not generating?**
