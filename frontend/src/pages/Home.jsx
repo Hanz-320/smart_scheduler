@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { FiZap } from "react-icons/fi";
+import DeleteConfirmationModal from "../components/DeleteConfirmationModal";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
@@ -16,6 +17,8 @@ export default function Home({ addTasks, user }) {
   const [savedProjects, setSavedProjects] = useState([]);
   const [showProjects, setShowProjects] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
   const hasLoaded = useRef(false);
   const navigate = useNavigate();
 
@@ -282,32 +285,39 @@ export default function Home({ addTasks, user }) {
     navigate("/dashboard");
   };
 
-  const deleteProject = async (projectId) => {
-    if (window.confirm("Delete this project?")) {
-      try {
-        await axios.delete(`${BACKEND_URL}/api/projects/${projectId}`);
-        console.log("✅ Project deleted from Firebase");
-        
-        // Invalidate cache
-        if (user) {
-          localStorage.removeItem(`projects_${user.uid}`);
-          localStorage.removeItem(`projects_${user.uid}_time`);
-        }
-      } catch (err) {
-        console.error("⚠️ Failed to delete from Firebase:", err);
+  const deleteProject = (project) => {
+    setProjectToDelete(project);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!projectToDelete) return;
+    try {
+      await axios.delete(`${BACKEND_URL}/api/projects/${projectToDelete.id}`);
+      console.log("✅ Project deleted from Firebase");
+      
+      // Invalidate cache
+      if (user) {
+        localStorage.removeItem(`projects_${user.uid}`);
+        localStorage.removeItem(`projects_${user.uid}_time`);
       }
       
-      const projects = savedProjects.filter(p => p.id !== projectId);
-      localStorage.setItem("projects", JSON.stringify(projects));
+      const projects = savedProjects.filter(p => p.id !== projectToDelete.id);
       setSavedProjects(projects);
       
       const currentProjectId = localStorage.getItem("currentProjectId");
-      if (currentProjectId === projectId) {
+      if (currentProjectId === projectToDelete.id) {
         console.log("⚠️ Deleted project was selected, clearing Dashboard state...");
         localStorage.removeItem("currentProjectId");
         localStorage.removeItem("currentProjectTitle");
         localStorage.removeItem("tasks");
       }
+    } catch (err) {
+      console.error("⚠️ Failed to delete from Firebase:", err);
+      alert("Failed to delete project.");
+    } finally {
+      setShowDeleteModal(false);
+      setProjectToDelete(null);
     }
   };
 
@@ -430,7 +440,7 @@ export default function Home({ addTasks, user }) {
                       {/* Only show delete button if user created the project (is admin) */}
                       {project.userId === user?.uid && (
                         <button
-                          onClick={() => deleteProject(project.id)}
+                          onClick={() => deleteProject(project)}
                           className="btn btn-small"
                           style={{ background: "#ef4444", color: "white" }}
                         >
@@ -506,7 +516,7 @@ export default function Home({ addTasks, user }) {
               disabled={loading}
             ></textarea>
             <small className="form-hint" style={{ marginTop: '8px', display: 'block' }}>
-              Note: The AI's output is based on your prompt. Results may need refinement.
+              Note: The AI's output is an initial draft. It might make mistakes and will require your careful review and potential refinement.
             </small>
           </div>
 
@@ -573,6 +583,15 @@ export default function Home({ addTasks, user }) {
           </button>
         </form>
       </section>
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setProjectToDelete(null);
+        }}
+        onConfirm={confirmDeleteProject}
+        projectName={projectToDelete?.title}
+      />
     </div>
   );
 }

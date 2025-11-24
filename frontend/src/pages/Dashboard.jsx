@@ -29,6 +29,10 @@ export default function Dashboard({ tasks, setTasks, user }) {
   const [lastTaskUpdate, setLastTaskUpdate] = useState(Date.now());
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDeleteNotification, setShowDeleteNotification] = useState(false);
+  const [showEditNotification, setShowEditNotification] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [projectStatus, setProjectStatus] = useState(null);
+  const [generationError, setGenerationError] = useState("");
 
   // Save view mode preference for logged-in users
   useEffect(() => {
@@ -38,23 +42,51 @@ export default function Dashboard({ tasks, setTasks, user }) {
   }, [viewMode, user]);
 
   useEffect(() => {
-    const savedTitle = localStorage.getItem("currentProjectTitle");
-    if (savedTitle) setCurrentProjectTitle(savedTitle);
-
+    const savedProjectId = localStorage.getItem("currentProjectId");
+    if (savedProjectId) {
+      setCurrentProjectId(savedProjectId);
+      const savedTitle = localStorage.getItem("currentProjectTitle");
+      if (savedTitle) setCurrentProjectTitle(savedTitle);
+    }
     if (user) {
-      // Logged-in user logic
-      const savedProjectId = localStorage.getItem("currentProjectId");
-      if (savedProjectId) setCurrentProjectId(savedProjectId);
-      
       loadAvailableProjects();
-      const pollInterval = setInterval(() => loadAvailableProjects(), 15000);
-      return () => clearInterval(pollInterval);
     } else {
-      // Guest user logic is now simpler: just display tasks passed via props.
-      // No need to load from localStorage here as it overwrites the state.
-      setCurrentProjectId(null); // Ensure no project is selected
+      setCurrentProjectId(null);
     }
   }, [user]);
+
+  useEffect(() => {
+    // This effect is for polling the status of a generating project.
+    if (projectStatus === 'generating' && currentProjectId) {
+      const interval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${BACKEND_URL}/api/projects/${currentProjectId}/status`);
+          const { status, error } = response.data;
+
+          if (status === 'completed') {
+            clearInterval(interval);
+            setProjectStatus('completed');
+            // Force a refresh of the project list and then reload the tasks for the now-completed project
+            await loadAvailableProjects(true); 
+            handleProjectChange({ target: { value: currentProjectId } });
+          } else if (status === 'failed') {
+            clearInterval(interval);
+            setProjectStatus('failed');
+            setGenerationError(error || "Unknown error during generation.");
+            console.error("Project generation failed:", error);
+          }
+          // If still 'generating', do nothing and let the interval run again.
+        } catch (err) {
+          clearInterval(interval);
+          setProjectStatus('failed');
+          setGenerationError("Could not get project status from the server.");
+          console.error("Polling error:", err);
+        }
+      }, 5000); // Poll every 5 seconds
+
+      return () => clearInterval(interval); // Cleanup on component unmount or status change
+    }
+  }, [projectStatus, currentProjectId]);
 
   const loadAvailableProjects = async (forceRefresh = false) => {
     if (!user) {
@@ -63,30 +95,58 @@ export default function Dashboard({ tasks, setTasks, user }) {
       return;
     }
     
-    const cacheKey = `projects_${user.uid}`;
+    // Check cache first
+    const cacheKey = `projects_list_${user.uid}`;
     const cacheTimeKey = `${cacheKey}_time`;
-    const CACHE_DURATION = 60000; // 60 seconds
+    const CACHE_DURATION = 300000; // 5 minutes
     
     if (!forceRefresh) {
       const cachedData = localStorage.getItem(cacheKey);
       const cacheTime = localStorage.getItem(cacheTimeKey);
       
-      if (cachedData && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
-        try {
+      if (cachedData && cacheTime) {
+        const age = Date.now() - parseInt(cacheTime);
+        if (age < CACHE_DURATION) {
           const projects = JSON.parse(cachedData);
           setAvailableProjects(projects);
+          
+          // Check status of current project if exists
+          if (currentProjectId) {
+            const currentProject = projects.find(p => p.id === currentProjectId);
+            if (currentProject) {
+              setProjectStatus(currentProject.status || 'completed');
+            }
+          }
+          setLoadingProjects(false);
           return;
-        } catch (e) { console.error("Cache parse error:", e); }
+        }
       }
     }
     
     setLoadingProjects(true);
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=20`);
+      // Load projects WITHOUT tasks for faster initial load
+      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=20&includeTasks=false`);
       const projects = response.data.projects || [];
-      setAvailableProjects(projects);
+      
+      // Cache the projects list
       localStorage.setItem(cacheKey, JSON.stringify(projects));
       localStorage.setItem(cacheTimeKey, Date.now().toString());
+      
+      setAvailableProjects(projects);
+
+      // Check status of current project if exists
+      if (currentProjectId) {
+        const currentProject = projects.find(p => p.id === currentProjectId);
+        if (currentProject) {
+          if(currentProject.status === 'generating') {
+            setProjectStatus('generating');
+            setTasks([]);
+          } else {
+            setProjectStatus(currentProject.status || 'completed');
+          }
+        }
+      }
     } catch (error) {
       console.error("Error loading projects:", error);
     } finally {
@@ -94,7 +154,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
     }
   };
   
-  const handleProjectChange = (e) => {
+  const handleProjectChange = async (e) => {
     const projectId = e.target.value;
     if (!projectId) {
       setTasks([]);
@@ -106,8 +166,36 @@ export default function Dashboard({ tasks, setTasks, user }) {
       return;
     }
     
-    const project = availableProjects.find(p => p.id === projectId);
-    if (project) {
+    // Check if tasks are already cached for this project
+    const tasksCacheKey = `project_tasks_${projectId}`;
+    const tasksCacheTimeKey = `${tasksCacheKey}_time`;
+    const TASKS_CACHE_DURATION = 60000; // 1 minute for tasks
+    
+    const cachedTasks = localStorage.getItem(tasksCacheKey);
+    const cacheTime = localStorage.getItem(tasksCacheTimeKey);
+    
+    let project = availableProjects.find(p => p.id === projectId);
+    
+    // If we have cached tasks that are fresh, use them
+    if (cachedTasks && cacheTime && project) {
+      const age = Date.now() - parseInt(cacheTime);
+      if (age < TASKS_CACHE_DURATION) {
+        const tasks = JSON.parse(cachedTasks);
+        setCurrentProjectId(project.id);
+        setCurrentProjectTitle(project.title);
+        localStorage.setItem("currentProjectId", project.id);
+        localStorage.setItem("currentProjectTitle", project.title);
+        setTasks(tasks);
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        return;
+      }
+    }
+    
+    // Otherwise, fetch the full project with tasks
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/projects/${projectId}`);
+      project = response.data;
+      
       setCurrentProjectId(project.id);
       setCurrentProjectTitle(project.title);
       localStorage.setItem("currentProjectId", project.id);
@@ -119,8 +207,22 @@ export default function Dashboard({ tasks, setTasks, user }) {
         assignedTo: task.assignedTo || "Unassigned",
       }));
       
+      // Cache the tasks
+      localStorage.setItem(tasksCacheKey, JSON.stringify(fixedTasks));
+      localStorage.setItem(tasksCacheTimeKey, Date.now().toString());
+      
       setTasks(fixedTasks);
       localStorage.setItem("tasks", JSON.stringify(fixedTasks));
+    } catch (error) {
+      console.error("Error loading project:", error);
+      // Fallback to local data if available
+      if (project) {
+        setCurrentProjectId(project.id);
+        setCurrentProjectTitle(project.title);
+        localStorage.setItem("currentProjectId", project.id);
+        localStorage.setItem("currentProjectTitle", project.title);
+        setTasks([]);
+      }
     }
   };
 
@@ -230,25 +332,33 @@ export default function Dashboard({ tasks, setTasks, user }) {
     if (user && currentProjectId) {
       try {
         await axios.patch(`${BACKEND_URL}/api/tasks/${updatedTask.id}`, updatedTask);
+        setShowEditNotification(true);
       } catch (err) { console.error("⚠️ Failed to update task in Firebase:", err); }
     }
     setEditingTask(null);
   };
 
-  const handleDeleteTask = async (taskId) => {
-    if (!window.confirm("Are you sure you want to delete this task?")) return;
+  const handleDeleteTask = (task) => {
+    setTaskToDelete(task);
+  };
 
-    const newTasks = tasks.filter(t => t.id !== taskId);
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return;
+
+    const newTasks = tasks.filter(t => t.id !== taskToDelete.id);
     setTasks(newTasks);
     setLastTaskUpdate(Date.now());
     localStorage.setItem("tasks", JSON.stringify(newTasks));
     
     if (user && currentProjectId) {
       try {
-        await axios.delete(`${BACKEND_URL}/api/tasks/${taskId}`);
-      } catch (err) { console.error("⚠️ Failed to delete task from Firebase:", err); }
+        await axios.delete(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks/${taskToDelete.id}`);
+      } catch (err) { 
+        console.error("⚠️ Failed to delete task from Firebase:", err); 
+      }
     }
     setEditingTask(null);
+    setTaskToDelete(null);
   };
 
   const handleAddTask = async (newTask) => {
@@ -311,7 +421,101 @@ export default function Dashboard({ tasks, setTasks, user }) {
       setShowDeleteModal(false);
       setShowDeleteNotification(true);
     }
-  };
+  }; // Closing brace for confirmDeleteProject function
+
+  const renderContent = () => {
+    if (projectStatus === 'generating') {
+      return (
+        <div className="empty-board-guide">
+          <div className="empty-guide-icon">⏳</div>
+          <h3 className="empty-guide-title">AI is Generating Your Project</h3>
+          <p className="empty-guide-subtitle">Your tasks will appear here shortly. This may take up to a minute.</p>
+          <div className="spinner" />
+        </div>
+      );
+    }
+
+    if (projectStatus === 'failed') {
+      return (
+        <div className="empty-board-guide">
+          <div className="empty-guide-icon">❌</div>
+          <h3 className="empty-guide-title">Project Generation Failed</h3>
+          <p className="empty-guide-subtitle" style={{color: 'var(--danger)'}}>{generationError}</p>
+          <p className="empty-guide-subtitle">Please try generating the project again from the Home page.</p>
+        </div>
+      );
+    }
+
+    if ((user && currentProjectId) || (!user && tasks.length > 0)) {
+      return (
+        <div className="board-wrap" key={`board-${viewMode}`}>
+          <DragDropContext onDragEnd={onDragEnd}>
+            {viewMode === "user-status" && user ? (
+              <div className="user-grouped-board">
+                {(() => {
+                  let allAssignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !["todo", "in-progress", "done"].includes(a)))];
+                  if (filterUser) {
+                    allAssignees = allAssignees.filter(a => a === filterUser);
+                  }
+                  return allAssignees.map(assignee => (
+                    <div key={assignee} className="user-group">
+                      <div className="user-group-header">
+                        <h3 className="user-group-title">👤 {assignee}</h3>
+                        <span className="user-task-count">
+                          {tasks.filter(t => t.assignedTo === assignee).length} task{tasks.filter(t => t.assignedTo === assignee).length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="user-status-columns">
+                        {["todo", "in-progress", "done"].map(status => (
+                          <Column 
+                            key={`${assignee}-${status}`}
+                            columnId={`${assignee}-${status}`} 
+                            title={`📝 ${status.replace('-', ' ')}`} 
+                            tasks={tasksByColumn(`${assignee}-${status}`)}
+                            viewMode={viewMode}
+                            user={user}
+                            onEditTask={handleEditTask}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            ) : (
+              <div className="board">
+                {columns.length === 0 && viewMode === "user" && user ? (
+                  <div className="empty-state"><p>No team members assigned to tasks yet.</p></div>
+                ) : (
+                  columns.map((c) => (
+                    <Column 
+                      key={`${viewMode}-${c.id}`}
+                      columnId={c.id} 
+                      title={c.title} 
+                      tasks={tasksByColumn(c.id)}
+                      viewMode={user ? viewMode : 'status'}
+                      user={user}
+                      onEditTask={handleEditTask}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </DragDropContext>
+        </div>
+      )
+    }
+
+    return (
+      <div className="empty-board-guide">
+        {user ? (
+          <><div className="empty-guide-icon">📂</div><h3 className="empty-guide-title">Select or Create a Project</h3><p className="empty-guide-subtitle">Choose a project from the sidebar, or create a new one from the Home page.</p></>
+        ) : (
+          <><div className="empty-guide-icon">🚀</div><h3 className="empty-guide-title">No tasks yet!</h3><p className="empty-guide-subtitle">Go to the <Link to="/" className="font-semibold text-indigo-400 hover:text-indigo-500">Home page</Link> to generate tasks.</p></>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="page dashboard-page">
@@ -567,83 +771,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
             </div>
           )}
 
-          {((user && currentProjectId) || (!user && tasks.length > 0)) ? (
-            <div className="board-wrap" key={`board-${viewMode}`}>
-              <DragDropContext onDragEnd={onDragEnd}>
-                {viewMode === "user-status" && user ? (
-                  // User-Status grouped view
-                  <div className="user-grouped-board">
-                    {(() => {
-                      // Get all unique assignees, filtered by user filter if set
-                      let allAssignees = [...new Set(tasks.map(t => t.assignedTo).filter(a => a && !["todo", "in-progress", "done"].includes(a)))];
-                      
-                      // If user filter is active, show only that user's kanban
-                      if (filterUser) {
-                        allAssignees = allAssignees.filter(a => a === filterUser);
-                      }
-                      
-                      return allAssignees.map(assignee => (
-                        <div key={assignee} className="user-group">
-                          <div className="user-group-header">
-                            <h3 className="user-group-title">👤 {assignee}</h3>
-                            <span className="user-task-count">
-                              {tasks.filter(t => t.assignedTo === assignee).length} task{tasks.filter(t => t.assignedTo === assignee).length !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="user-status-columns">
-                            {[
-                              { id: `${assignee}-todo`, title: "📝 To Do", status: "todo" },
-                              { id: `${assignee}-in-progress`, title: "⚡ In Progress", status: "in-progress" },
-                              { id: `${assignee}-done`, title: "✅ Done", status: "done" }
-                            ].map(col => (
-                              <Column 
-                                key={col.id}
-                                columnId={col.id} 
-                                title={col.title} 
-                                tasks={tasksByColumn(col.id)}
-                                viewMode={viewMode}
-                                user={user}
-                                onEditTask={handleEditTask}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                ) : (
-                  // Regular board view (Status or User, and also for guests)
-                  <div className="board">
-                    {columns.length === 0 && viewMode === "user" && user ? ( // Only show empty state for logged-in user in "user" view
-                      <div className="empty-state">
-                        <p>No team members assigned to tasks yet.</p>
-                      </div>
-                    ) : (
-                      columns.map((c) => (
-                        <Column 
-                          key={`${viewMode}-${c.id}`}
-                          columnId={c.id} 
-                          title={c.title} 
-                          tasks={tasksByColumn(c.id)}
-                          viewMode={user ? viewMode : 'status'}
-                          user={user}
-                          onEditTask={handleEditTask}
-                        />
-                      ))
-                    )}
-                  </div>
-                )}
-              </DragDropContext>
-            </div>
-          ) : (
-            <div className="empty-board-guide">
-              {user ? (
-                <><div className="empty-guide-icon">📂</div><h3 className="empty-guide-title">Select a Project to Begin</h3><p className="empty-guide-subtitle">Choose a project from the sidebar.</p></>
-              ) : (
-                <><div className="empty-guide-icon">🚀</div><h3 className="empty-guide-title">No tasks yet!</h3><p className="empty-guide-subtitle">Go to the <Link to="/" className="font-semibold text-indigo-400 hover:text-indigo-500">Home page</Link> to generate tasks.</p></>
-              )}
-            </div>
-          )}
+          {renderContent()}
         </div>
       </div>
 
@@ -654,12 +782,28 @@ export default function Dashboard({ tasks, setTasks, user }) {
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={confirmDeleteProject}
-        projectName={currentProjectTitle}
+        message={<>Are you sure you want to permanently delete the project: <strong>{currentProjectTitle}</strong>?</>}
       />
+      
+      {taskToDelete && (
+        <DeleteConfirmationModal
+          isOpen={!!taskToDelete}
+          onClose={() => setTaskToDelete(null)}
+          onConfirm={confirmDeleteTask}
+          title="Confirm Task Deletion"
+          message={<>Are you sure you want to permanently delete the task: <strong>{taskToDelete.title}</strong>?</>}
+        />
+      )}
+
       <Notification
         isOpen={showDeleteNotification}
         onClose={() => setShowDeleteNotification(false)}
         message="Project successfully deleted."
+      />
+      <Notification
+        isOpen={showEditNotification}
+        onClose={() => setShowEditNotification(false)}
+        message="Task successfully updated."
       />
     </div>
   );

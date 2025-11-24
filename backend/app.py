@@ -1,14 +1,15 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
-import requests, json, time, re, os, pickle, random
+import requests, json, time, re, os, joblib, random
 from dotenv import load_dotenv
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 import numpy as np
+from itertools import cycle
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -25,33 +26,17 @@ except Exception as e:
 
 # Load ML models for task duration estimation
 try:
-    with open('duration_model.pkl', 'rb') as f:
-        duration_model = pickle.load(f)
-    with open('le_task_type.pkl', 'rb') as f:
-        le_task_type = pickle.load(f)
-    with open('le_assignee.pkl', 'rb') as f:
-        le_assignee = pickle.load(f)
-    print("✅ ML models loaded successfully")
+    duration_artifacts = joblib.load('duration_artifacts.pkl')
+    duration_model = duration_artifacts['model']
+    le_task_type = duration_artifacts['le_task_type']
+    le_assignee = duration_artifacts['le_assignee']
+    print("✅ Duration ML model artifacts loaded successfully")
 except Exception as e:
-    print(f"⚠️ ML models not loaded: {e}")
+    print(f"⚠️ Duration ML model artifacts not loaded: {e}")
     duration_model = None
     le_task_type = None
     le_assignee = None
 
-# Load ML models for task assignment
-try:
-    with open('ml_model/assignment_model.pkl', 'rb') as f:
-        assignment_model = pickle.load(f)
-    with open('ml_model/le_assignee_assignment.pkl', 'rb') as f:
-        le_assignee_assignment = pickle.load(f)
-    with open('ml_model/le_task_type_assignment.pkl', 'rb') as f:
-        le_task_type_assignment = pickle.load(f)
-    print("✅ Assignment ML models loaded successfully")
-except Exception as e:
-    print(f"⚠️ Assignment ML models not loaded: {e}")
-    assignment_model = None
-    le_assignee_assignment = None
-    le_task_type_assignment = None
 
 def call_gemini(prompt, max_retries=5):
     import time
@@ -259,43 +244,103 @@ def get_user_info(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def assign_user(task, team_members):
-    """Use ML model to assign a user to a task."""
-    if not assignment_model or not le_assignee_assignment or not le_task_type_assignment:
-        # Fallback to random assignment if model is not loaded
-        return random.choice(team_members) if team_members else "Unassigned"
-
+# Update user profile
+@app.route("/api/users/<user_id>", methods=["PATCH"])
+def update_user_profile(user_id):
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    
     try:
-        # Extract features
-        task_type = task.get("type", "other")
-        complexity = task.get("priority", "medium") # Using priority as a proxy for complexity
+        data = request.json
+        updates = {}
 
-        # Encode features
-        task_type_encoded = le_task_type_assignment.transform([task_type])[0]
-        
-        # Map complexity to numerical value
-        complexity_map = {'low': 0, 'medium': 1, 'high': 2}
-        complexity_encoded = complexity_map.get(complexity, 1)
+        # Update username if provided
+        if "username" in data:
+            new_username = data["username"]
+            if not new_username.strip():
+                return jsonify({"error": "Username cannot be empty"}), 400
+            
+            # Update Firebase Auth display name
+            auth.update_user(user_id, display_name=new_username)
+            
+            # Update Firestore document
+            user_ref = db.collection("users").document(user_id)
+            user_ref.update({"username": new_username})
+            updates["username"] = new_username
 
-        features = [[task_type_encoded, complexity_encoded]]
-        
-        # Predict user
-        predicted_user_encoded = assignment_model.predict(features)[0]
-        predicted_user = le_assignee_assignment.inverse_transform([predicted_user_encoded])[0]
-        
-        # Ensure the predicted user is in the current team
-        if team_members and predicted_user in team_members:
-            return predicted_user
-        elif team_members:
-            # If the predicted user is not in the team, fallback to random selection
-            return random.choice(team_members)
-        else:
-            return "Unassigned"
+        # Update password if provided
+        if "newPassword" in data:
+            new_password = data["newPassword"]
+            if len(new_password) < 6:
+                return jsonify({"error": "Password must be at least 6 characters"}), 400
+            
+            # Update Firebase Auth password
+            auth.update_user(user_id, password=new_password)
+            updates["password"] = "updated"
 
+        if not updates:
+            return jsonify({"error": "No updates provided"}), 400
+
+        return jsonify({"success": True, "updates": updates}), 200
     except Exception as e:
-        print(f"⚠️ User assignment error: {e}")
-        # Fallback to random selection on error
-        return random.choice(team_members) if team_members else "Unassigned"
+        print(f"❌ Profile update error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+def assign_user(task, team_members, member_roles, assignments):
+    """Assign a user to a task based on role and workload."""
+    task_type = task.get("type", "other").lower()
+    
+    # Define role keywords for each task type
+    role_map = {
+        "frontend": ["frontend developer", "software engineer", "developer"],
+        "backend": ["backend developer", "software engineer", "developer"],
+        "development": ["backend developer", "software engineer", "developer", "frontend developer"],
+        "design": ["designer", "ui/ux designer"],
+        "testing": ["qa engineer", "tester", "software engineer"],
+        "devops": ["devops engineer", "systems administrator"],
+        "documentation": ["technical writer", "developer", "business analyst"],
+        "research": ["researcher", "analyst", "business analyst"],
+        "analysis": ["researcher", "analyst", "business analyst"],
+        "planning": ["project manager", "business analyst"],
+        "data_preparation": ["business analyst", "data analyst", "software engineer"],
+        "review": ["project manager", "qa engineer", "software engineer"],
+        "deployment": ["devops engineer", "software engineer"],
+        "monitoring": ["devops engineer", "software engineer"],
+        "feedback": ["project manager", "business analyst"],
+        "meeting": [],  # Can be assigned to anyone
+        "other": [],    # Can be assigned to anyone
+    }
+    
+    possible_roles = role_map.get(task_type, [])
+    
+    # Find all users with the possible roles
+    eligible_users = []
+    if possible_roles:
+        for user, role in member_roles.items():
+            if any(keyword in role.lower() for keyword in possible_roles):
+                eligible_users.append(user)
+            
+    # If no one has a specific role, any developer can take it
+    if not eligible_users:
+        for user, role in member_roles.items():
+            if "developer" in role.lower() or "engineer" in role.lower():
+                eligible_users.append(user)
+
+    # If still no one, make it open for anyone in the team
+    if not eligible_users:
+        eligible_users = list(team_members)
+
+    # If team is empty, return "Unassigned"
+    if not eligible_users:
+        return "Unassigned"
+        
+    # Find the user with the minimum number of assigned tasks
+    eligible_assignments = {u: assignments.get(u, 0) for u in eligible_users}
+    
+    # Return user with the least tasks
+    return min(eligible_assignments, key=eligible_assignments.get)
 
 @app.route("/generate", methods=["POST"])
 @cross_origin()
@@ -361,6 +406,7 @@ The project plan must contain between 25 and 35 tasks.
 Each task object should have the following fields: "title", "priority", "estimatedDuration", "type", and "assigned_user".
 Assign tasks to the following team members: {', '.join(member_names) if member_names else 'Unassigned'}.
 Ensure the tasks are in a logical sequence.
+This is an AI-generated draft; review and refine task details and assignments for accuracy.
 Return ONLY the JSON array with no markdown formatting."""
     
     print(f"🤖 Calling Gemini API to generate tasks...\n")
@@ -382,6 +428,7 @@ Return ONLY the JSON array with no markdown formatting."""
     
     # Process tasks with enhanced details
     tasks = []
+    assignments = {member_name: 0 for member_name in member_names}
     for idx, t in enumerate(tasks_data):
         # Parse duration
         duration = t.get("estimatedDuration", "3 hours")
@@ -401,8 +448,10 @@ Return ONLY the JSON array with no markdown formatting."""
         # Capitalize first letter for consistency
         task_type = task_type.capitalize() if task_type else "Backend"
         
-        # Assign user using the ML model
-        assigned_user = assign_user(t, member_names)
+        # Assign user using the new role-based logic
+        assigned_user = assign_user(t, member_names, member_roles, assignments)
+        if assigned_user in assignments:
+            assignments[assigned_user] += 1
         
         tasks.append({
             "sequence": idx + 1,  # Add sequence number for ordering
@@ -429,7 +478,6 @@ Return ONLY the JSON array with no markdown formatting."""
     
     return jsonify({"tasks": tasks}), 200
 
-# Projects endpoint - handles both POST and GET
 @app.route("/api/projects", methods=["GET", "POST"])
 def projects():
     if not db:
@@ -442,8 +490,9 @@ def projects():
             if not user_id:
                 return jsonify({"error": "userId parameter is required"}), 400
             
-            # Limit to last 50 projects to improve performance
-            limit = int(request.args.get("limit", 20))  # Reduced default from 50 to 20
+            # Check if we only need metadata (no tasks)
+            include_tasks = request.args.get("includeTasks", "false").lower() == "true"
+            limit = int(request.args.get("limit", 20))
             
             projects = []
             project_ids_seen = set()
@@ -457,20 +506,25 @@ def projects():
                     project["id"] = doc.id
                     project_ids_seen.add(doc.id)
                     
-                    # Get tasks for this project - limit to 100 tasks per project
-                    tasks = []
-                    tasks_ref = doc.reference.collection("tasks").limit(100)
-                    for task_doc in tasks_ref.stream():
-                        task = task_doc.to_dict()
-                        task["id"] = task_doc.id
-                        tasks.append(task)
+                    # Only load tasks if explicitly requested
+                    if include_tasks:
+                        tasks = []
+                        tasks_ref = doc.reference.collection("tasks").limit(100)
+                        for task_doc in tasks_ref.stream():
+                            task = task_doc.to_dict()
+                            task["id"] = task_doc.id
+                            tasks.append(task)
+                        tasks.sort(key=lambda t: t.get("sequence", 999))
+                        project["tasks"] = tasks
+                    else:
+                        # Just include task count for metadata view
+                        task_count = len(list(doc.reference.collection("tasks").limit(1).stream()))
+                        project["taskCount"] = task_count if task_count > 0 else 0
+                        project["tasks"] = []  # Empty array for consistency
                     
-                    # Sort by sequence number in Python (Firestore index not required)
-                    tasks.sort(key=lambda t: t.get("sequence", 999))
-                    project["tasks"] = tasks
                     projects.append(project)
             except Exception as index_error:
-                # If composite index doesn't exist, fall back to filtering by userId only
+                # Fallback if composite index doesn't exist
                 print(f"⚠️ Composite index error, using simple filter: {index_error}")
                 projects_ref = db.collection("projects").where(filter=firestore.FieldFilter("userId", "==", user_id)).limit(limit)
                 
@@ -479,70 +533,59 @@ def projects():
                     project["id"] = doc.id
                     project_ids_seen.add(doc.id)
                     
-                    # Get tasks for this project - limit to 100 tasks per project
-                    tasks = []
-                    tasks_ref = doc.reference.collection("tasks").limit(100)
-                    for task_doc in tasks_ref.stream():
-                        task = task_doc.to_dict()
-                        task["id"] = task_doc.id
-                        tasks.append(task)
-                    
-                    # Sort by sequence number in Python (Firestore index not required)
-                    tasks.sort(key=lambda t: t.get("sequence", 999))
-                    project["tasks"] = tasks
-                    projects.append(project)
-            
-            # Step 2: Get groups where user is a member (optimized with index query)
-            user_group_ids = []
-            
-            # Query groups where user is admin
-            admin_groups = db.collection("groups").where(filter=firestore.FieldFilter("adminId", "==", user_id)).stream()
-            for group_doc in admin_groups:
-                user_group_ids.append(group_doc.id)
-            
-            # Note: Can't efficiently query array_contains for nested objects
-            # So we still need to check members, but only if needed
-            # This is a Firestore limitation - consider denormalizing if this becomes a bottleneck
-            if len(user_group_ids) < 10:  # Only check member arrays if we don't have many groups already
-                all_groups = db.collection("groups").limit(100).stream()
-                for group_doc in all_groups:
-                    if group_doc.id in user_group_ids:
-                        continue
-                    group_data = group_doc.to_dict()
-                    members = group_data.get("members", [])
-                    for member in members:
-                        if member.get("userId") == user_id:
-                            user_group_ids.append(group_doc.id)
-                            break
-            
-            # Step 3: Get projects for those groups (if any) - limited to 30 per group
-            if user_group_ids:
-                # Process groups in batches for better performance
-                for group_id in user_group_ids[:10]:  # Limit to 10 groups max
-                    group_projects_ref = db.collection("projects").where(filter=firestore.FieldFilter("groupId", "==", group_id)).limit(30)
-                    for doc in group_projects_ref.stream():
-                        # Skip if we already added this project
-                        if doc.id in project_ids_seen:
-                            continue
-                        
-                        project = doc.to_dict()
-                        project["id"] = doc.id
-                        project_ids_seen.add(doc.id)
-                        
-                        # Get tasks for this project - limit to 100 tasks per project
+                    if include_tasks:
                         tasks = []
                         tasks_ref = doc.reference.collection("tasks").limit(100)
                         for task_doc in tasks_ref.stream():
                             task = task_doc.to_dict()
                             task["id"] = task_doc.id
                             tasks.append(task)
-                        
-                        # Sort by sequence number in Python (Firestore index not required)
                         tasks.sort(key=lambda t: t.get("sequence", 999))
                         project["tasks"] = tasks
-                        projects.append(project)
+                    else:
+                        project["taskCount"] = 0
+                        project["tasks"] = []
+                    
+                    projects.append(project)
             
-            # Sort by createdAt in Python
+            # Step 2: Get group projects only if requested
+            if request.args.get("includeGroupProjects", "true").lower() == "true":
+                # Get groups where user is a member (optimized)
+                user_group_ids = []
+                
+                # Query groups where user is admin
+                admin_groups = db.collection("groups").where(filter=firestore.FieldFilter("adminId", "==", user_id)).limit(10).stream()
+                for group_doc in admin_groups:
+                    user_group_ids.append(group_doc.id)
+                
+                # Get projects for those groups (limited)
+                if user_group_ids:
+                    for group_id in user_group_ids[:5]:  # Limit to 5 groups max
+                        group_projects_ref = db.collection("projects").where(filter=firestore.FieldFilter("groupId", "==", group_id)).limit(10)
+                        for doc in group_projects_ref.stream():
+                            if doc.id in project_ids_seen:
+                                continue
+                            
+                            project = doc.to_dict()
+                            project["id"] = doc.id
+                            project_ids_seen.add(doc.id)
+                            
+                            if include_tasks:
+                                tasks = []
+                                tasks_ref = doc.reference.collection("tasks").limit(100)
+                                for task_doc in tasks_ref.stream():
+                                    task = task_doc.to_dict()
+                                    task["id"] = task_doc.id
+                                    tasks.append(task)
+                                tasks.sort(key=lambda t: t.get("sequence", 999))
+                                project["tasks"] = tasks
+                            else:
+                                project["taskCount"] = 0
+                                project["tasks"] = []
+                            
+                            projects.append(project)
+            
+            # Sort by createdAt
             projects.sort(key=lambda p: p.get("createdAt", 0), reverse=True)
             
             return jsonify({"projects": projects}), 200
@@ -597,14 +640,16 @@ def get_project(project_id):
         project = project_doc.to_dict()
         project["id"] = project_doc.id
         
-        # Get tasks
+        # Get tasks with limit and sort
         tasks = []
-        tasks_ref = project_ref.collection("tasks")
+        tasks_ref = project_ref.collection("tasks").limit(100)
         for task_doc in tasks_ref.stream():
             task = task_doc.to_dict()
             task["id"] = task_doc.id
             tasks.append(task)
         
+        # Sort by sequence number
+        tasks.sort(key=lambda t: t.get("sequence", 999))
         project["tasks"] = tasks
         return jsonify(project), 200
     except Exception as e:
@@ -618,100 +663,87 @@ def delete_project(project_id):
     
     try:
         project_ref = db.collection("projects").document(project_id)
-        
-        # Delete all tasks first
         tasks_ref = project_ref.collection("tasks")
-        for task_doc in tasks_ref.stream():
-            task_doc.reference.delete()
-        
-        # Delete project
+
+        # Delete subcollection in batches.
+        # This is more efficient than one-by-one deletion.
+        while True:
+            docs = tasks_ref.limit(100).stream() # 100 is a reasonable batch size
+            
+            # Break if no documents found
+            doc_list = list(docs)
+            if not doc_list:
+                break
+
+            batch = db.batch()
+            for doc in doc_list:
+                batch.delete(doc.reference)
+            
+            batch.commit()
+            print(f"Deleted a batch of {len(doc_list)} tasks.")
+
+        # Delete the project document itself
         project_ref.delete()
         
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Delete individual task from a project
-@app.route("/api/projects/<project_id>/tasks/<task_id>", methods=["DELETE"])
-def delete_task(project_id, task_id):
+# Get or add tasks for a project
+@app.route("/api/projects/<project_id>/tasks", methods=["GET", "POST"])
+def project_tasks(project_id):
     if not db:
         return jsonify({"error": "Firebase not initialized"}), 500
-    
-    try:
-        project_ref = db.collection("projects").document(project_id)
-        task_ref = project_ref.collection("tasks").document(task_id)
-        
-        task_doc = task_ref.get()
-        if not task_doc.exists:
-            return jsonify({"error": "Task not found"}), 404
-        
-        task_ref.delete()
-        return jsonify({"success": True}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-# Update task status (for drag-and-drop)
-@app.route("/api/tasks/<task_id>", methods=["PATCH"])
-def update_task(task_id):
-    if not db:
-        return jsonify({"error": "Firebase not initialized"}), 500
-    
-    try:
-        data = request.json
-        
-        # Find task in all projects
-        projects_ref = db.collection("projects")
-        for project_doc in projects_ref.stream():
-            task_ref = project_doc.reference.collection("tasks").document(task_id)
-            task_doc = task_ref.get()
+    if request.method == "GET":
+        try:
+            project_ref = db.collection("projects").document(project_id)
             
-            if task_doc.exists:
-                task_ref.update(data)
-                return jsonify({"success": True}), 200
-        
-        return jsonify({"error": "Task not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Add task to project
-@app.route("/api/projects/<project_id>/tasks", methods=["POST"])
-def add_task_to_project(project_id):
-    if not db:
-        return jsonify({"error": "Firebase not initialized"}), 500
+            tasks = []
+            tasks_ref = project_ref.collection("tasks")
+            for task_doc in tasks_ref.stream():
+                task = task_doc.to_dict()
+                task["id"] = task_doc.id
+                tasks.append(task)
+            
+            tasks.sort(key=lambda t: t.get("sequence", 999))
+            
+            return jsonify({"tasks": tasks}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     
-    try:
-        data = request.json
-        
-        # Get project reference
-        project_ref = db.collection("projects").document(project_id)
-        project_doc = project_ref.get()
-        
-        if not project_doc.exists:
-            return jsonify({"error": "Project not found"}), 404
-        
-        # Create new task in subcollection
-        task_ref = project_ref.collection("tasks").document()
-        task_data = {
-            "id": task_ref.id,
-            "title": data.get("title"),
-            "description": data.get("description", ""),
-            "priority": data.get("priority", "Medium"),
-            "status": data.get("status", "todo"),
-            "assignedTo": data.get("assignedTo", "Unassigned"),
-            "due": data.get("due", ""),
-            "task_type": data.get("task_type", "Feature"),
-            "acceptance_criteria": data.get("acceptance_criteria", []),
-            "dependencies": data.get("dependencies", [])
-        }
-        task_ref.set(task_data)
-        
-        return jsonify({"success": True, "taskId": task_ref.id}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if request.method == "POST":
+        try:
+            data = request.json
+            
+            project_ref = db.collection("projects").document(project_id)
+            project_doc = project_ref.get()
+            
+            if not project_doc.exists:
+                return jsonify({"error": "Project not found"}), 404
+            
+            task_ref = project_ref.collection("tasks").document()
+            task_data = {
+                "id": task_ref.id,
+                "title": data.get("title"),
+                "description": data.get("description", ""),
+                "priority": data.get("priority", "Medium"),
+                "status": data.get("status", "todo"),
+                "assignedTo": data.get("assignedTo", "Unassigned"),
+                "due": data.get("due", ""),
+                "task_type": data.get("task_type", "Feature"),
+                "acceptance_criteria": data.get("acceptance_criteria", []),
+                "dependencies": data.get("dependencies", [])
+            }
+            task_ref.set(task_data)
+            
+            return jsonify({"success": True, "taskId": task_ref.id}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
-# ============================================
+# ============================================ 
 # GROUP MANAGEMENT ENDPOINTS
-# ============================================
+# ============================================ 
 
 # Create a new group
 @app.route("/api/groups", methods=["POST"])
@@ -906,9 +938,78 @@ def delete_group(group_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ============================================
+# Update member role in a group
+@app.route("/api/groups/<group_id>/members/<member_id>", methods=["PATCH"])
+def update_member_role(group_id, member_id):
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    try:
+        data = request.json
+        new_role = data.get("role")
+        if not new_role:
+            return jsonify({"error": "New role is required"}), 400
+
+        group_ref = db.collection("groups").document(group_id)
+        group_doc = group_ref.get()
+
+        if not group_doc.exists:
+            return jsonify({"error": "Group not found"}), 404
+
+        group_data = group_doc.to_dict()
+        members = group_data.get("members", [])
+        
+        member_found = False
+        for member in members:
+            if member.get("id") == member_id:
+                member["role"] = new_role
+                member_found = True
+                break
+        
+        if not member_found:
+            return jsonify({"error": "Member not found"}), 404
+            
+        group_ref.update({"members": members})
+        
+        # Return the updated group data
+        updated_group_doc = group_ref.get()
+        updated_group_data = updated_group_doc.to_dict()
+        updated_group_data["id"] = updated_group_doc.id
+
+        return jsonify({"group": updated_group_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Update admin role in a group
+@app.route("/api/groups/<group_id>/admin-role", methods=["PUT"])
+def update_admin_role(group_id):
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    try:
+        data = request.json
+        new_role = data.get("adminRole")
+        if not new_role:
+            return jsonify({"error": "New adminRole is required"}), 400
+
+        group_ref = db.collection("groups").document(group_id)
+        group_doc = group_ref.get()
+
+        if not group_doc.exists:
+            return jsonify({"error": "Group not found"}), 404
+
+        group_ref.update({"adminRole": new_role})
+        
+        # Return the updated group data
+        updated_group_doc = group_ref.get()
+        updated_group_data = updated_group_doc.to_dict()
+        updated_group_data["id"] = updated_group_doc.id
+
+        return jsonify({"group": updated_group_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
+# ============================================ 
 # CONTACT FORM ENDPOINT
-# ============================================
+# ============================================ 
 @app.route("/api/contact", methods=["POST", "OPTIONS"])
 @cross_origin()
 def contact_form():

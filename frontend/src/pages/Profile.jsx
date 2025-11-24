@@ -2,11 +2,16 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FiUser, FiMail, FiClipboard, FiCheck, FiGrid, FiCheckSquare, FiEdit, FiList } from "react-icons/fi";
 import EditProfileModal from "../components/EditProfileModal";
+import Notification from "../components/Notification";
+import axios from "axios";
+
+const BACKEND_URL = "http://localhost:5000";
 
 export default function Profile({ user }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [stats, setStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -51,12 +56,43 @@ export default function Profile({ user }) {
   const handleSaveProfile = async (updates) => {
     console.log("Updating profile:", updates);
     
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        alert("Profile updated successfully!");
-        resolve();
-      }, 1000);
-    });
+    try {
+      const updateData = {};
+      
+      // Only include username if it changed
+      if (updates.username && updates.username !== user.username) {
+        updateData.username = updates.username;
+      }
+      
+      // Include password if provided
+      if (updates.newPassword) {
+        updateData.newPassword = updates.newPassword;
+      }
+      
+      if (Object.keys(updateData).length === 0) {
+        alert("No changes to save");
+        return;
+      }
+      
+      // Call the backend API
+      const response = await axios.patch(
+        `${BACKEND_URL}/api/users/${user.uid}`,
+        updateData
+      );
+      
+      if (response.data.success) {
+        setShowSuccessNotification(true);
+        
+        // Update local user object if username changed
+        if (updateData.username && user.updateProfile) {
+          await user.updateProfile({ displayName: updateData.username });
+        }
+      }
+    } catch (error) {
+      console.error("Profile update error:", error);
+      const errorMessage = error.response?.data?.error || "Failed to update profile";
+      throw new Error(errorMessage);
+    }
   };
 
   const completionRate = stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0;
@@ -70,6 +106,14 @@ export default function Profile({ user }) {
           onSave={handleSaveProfile}
         />
       )}
+      <Notification
+        isOpen={showSuccessNotification}
+        onClose={() => {
+          setShowSuccessNotification(false);
+          window.location.reload();
+        }}
+        message="Profile updated successfully!"
+      />
       
       <div style={{ 
         minHeight: '100vh',

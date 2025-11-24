@@ -23,7 +23,7 @@ export default function EditTaskModal({ task, onClose, onSave, onDelete, teamMem
 
   const handleDelete = () => {
     if (onDelete) {
-      onDelete(task.id);
+      onDelete(task);
     }
   };
 

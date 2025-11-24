@@ -82,6 +82,13 @@ function App() {
   // Update tasks after drag-and-drop or edits
   const updateTasks = (newTasks) => setTasks(newTasks);
 
+  // Update user state (e.g., after profile edit)
+  const handleUserUpdate = (updatedData) => {
+    const newUser = { ...user, ...updatedData };
+    setUser(newUser);
+    localStorage.setItem("user", JSON.stringify(newUser));
+  };
+
   // Protected route wrapper
   const ProtectedRoute = ({ children }) => {
     if (authLoading) {
@@ -105,7 +112,7 @@ function App() {
             <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <Register />} />
             <Route path="/dashboard" element={<Dashboard tasks={tasks} setTasks={updateTasks} user={user} />} />
             <Route path="/groups" element={<GroupManagement user={user} />} />
-            <Route path="/profile" element={<Profile user={user} />} />
+            <Route path="/profile" element={<Profile user={user} onUpdateUser={handleUserUpdate} />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="*" element={<Navigate to="/" replace />} />
