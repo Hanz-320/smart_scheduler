@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { auth } from "../firebase";
+import DeleteConfirmationModal from "../components/DeleteConfirmationModal";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
@@ -34,6 +35,10 @@ export default function GroupManagement({ user }) {
   // Add Member State
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState("Software Engineer");
+
+  // Delete/Leave Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
 
   useEffect(() => {
     if (!user) {
@@ -234,8 +239,11 @@ export default function GroupManagement({ user }) {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to remove this member?")) return;
+    setItemToDelete({ type: 'removeMember', id: memberId });
+    setShowDeleteModal(true);
+  };
 
+  const confirmRemoveMember = async (memberId) => {
     try {
       setLoading(true);
       setError("");
@@ -258,12 +266,22 @@ export default function GroupManagement({ user }) {
       setError(err.response?.data?.error || "Failed to remove member");
     } finally {
       setLoading(false);
+      setShowDeleteModal(false);
+      setItemToDelete(null);
     }
   };
+  
+  const handleDeleteGroup = (groupId) => {
+    setItemToDelete({ type: 'deleteGroup', id: groupId });
+    setShowDeleteModal(true);
+  };
 
-  const deleteGroup = async (groupId) => {
-    if (!window.confirm("Are you sure you want to delete this group? This action cannot be undone.")) return;
+  const handleLeaveGroup = (groupId) => {
+    setItemToDelete({ type: 'leaveGroup', id: groupId });
+    setShowDeleteModal(true);
+  };
 
+  const confirmDeleteGroup = async (groupId) => {
     try {
       setLoading(true);
       setError("");
@@ -286,39 +304,12 @@ export default function GroupManagement({ user }) {
       setError(err.response?.data?.error || "Failed to delete group");
     } finally {
       setLoading(false);
+      setShowDeleteModal(false);
+      setItemToDelete(null);
     }
   };
 
-  const updateAdminRole = async (newRole) => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await axios.put(`${BACKEND_URL}/api/groups/${selectedGroup.id}/admin-role`, {
-        adminRole: newRole
-      });
-
-      setSuccess("Your role updated successfully!");
-      
-      // Invalidate cache
-      localStorage.removeItem(`groups_${user.uid}`);
-      localStorage.removeItem(`groups_${user.uid}_time`);
-      
-      const updatedGroup = { ...selectedGroup, adminRole: newRole };
-      setSelectedGroup(updatedGroup);
-      setGroups(groups.map(g => g.id === selectedGroup.id ? updatedGroup : g));
-      
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      console.error("Error updating admin role:", err);
-      setError(err.response?.data?.error || "Failed to update admin role");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const leaveGroup = async (groupId) => {
-    if (!window.confirm("Are you sure you want to leave this group? You will lose access to group projects.")) return;
-
+  const confirmLeaveGroup = async (groupId) => {
     try {
       setLoading(true);
       setError("");
@@ -350,6 +341,35 @@ export default function GroupManagement({ user }) {
     } catch (err) {
       console.error("Error leaving group:", err);
       setError(err.response?.data?.error || "Failed to leave group");
+    } finally {
+      setLoading(false);
+      setShowDeleteModal(false);
+      setItemToDelete(null);
+    }
+  };
+
+  const updateAdminRole = async (newRole) => {
+    try {
+      setLoading(true);
+      setError("");
+      const response = await axios.put(`${BACKEND_URL}/api/groups/${selectedGroup.id}/admin-role`, {
+        adminRole: newRole
+      });
+
+      setSuccess("Your role updated successfully!");
+      
+      // Invalidate cache
+      localStorage.removeItem(`groups_${user.uid}`);
+      localStorage.removeItem(`groups_${user.uid}_time`);
+      
+      const updatedGroup = { ...selectedGroup, adminRole: newRole };
+      setSelectedGroup(updatedGroup);
+      setGroups(groups.map(g => g.id === selectedGroup.id ? updatedGroup : g));
+      
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err) {
+      console.error("Error updating admin role:", err);
+      setError(err.response?.data?.error || "Failed to update admin role");
     } finally {
       setLoading(false);
     }
@@ -423,7 +443,7 @@ export default function GroupManagement({ user }) {
                       className="btn-delete-group"
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteGroup(group.id);
+                        handleDeleteGroup(group.id);
                       }}
                       title="Delete group"
                     >
@@ -434,7 +454,7 @@ export default function GroupManagement({ user }) {
                       className="btn-leave-group"
                       onClick={(e) => {
                         e.stopPropagation();
-                        leaveGroup(group.id);
+                        handleLeaveGroup(group.id);
                       }}
                       title="Leave group"
                     >
@@ -571,9 +591,6 @@ export default function GroupManagement({ user }) {
                           <div className="member-details">
                             <h4>{member.name || 'Unknown User'}</h4>
                             <p className="member-id">ID: {member.userId}</p>
-                            <p className="member-date">
-                              Added {new Date(member.addedAt).toLocaleDateString()}
-                            </p>
                           </div>
                         </div>
 
@@ -657,6 +674,39 @@ export default function GroupManagement({ user }) {
             </form>
           </div>
         </div>
+      )}
+
+      {showDeleteModal && (
+        <DeleteConfirmationModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setItemToDelete(null);
+          }}
+          onConfirm={() => {
+            if (itemToDelete.type === 'deleteGroup') {
+              confirmDeleteGroup(itemToDelete.id);
+            } else if (itemToDelete.type === 'leaveGroup') {
+              confirmLeaveGroup(itemToDelete.id);
+            } else if (itemToDelete.type === 'removeMember') {
+              confirmRemoveMember(itemToDelete.id);
+            }
+          }}
+          title={
+            itemToDelete.type === 'deleteGroup' 
+              ? 'Delete Group' 
+              : itemToDelete.type === 'leaveGroup' 
+              ? 'Leave Group' 
+              : 'Remove Member'
+          }
+          message={
+            itemToDelete.type === 'deleteGroup'
+              ? `Are you sure you want to permanently delete the group? This action cannot be undone.`
+              : itemToDelete.type === 'leaveGroup'
+              ? `Are you sure you want to leave this group? You will lose access to group projects.`
+              : `Are you sure you want to remove this member?`
+          }
+        />
       )}
     </div>
   );
