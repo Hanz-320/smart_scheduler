@@ -12,16 +12,14 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
 
 # Initialize Firebase
 try:
     cred = credentials.Certificate("firebase_key.json")
     firebase_admin.initialize_app(cred)
     db = firestore.client()
-    print("✅ Firebase initialized successfully")
 except Exception as e:
-    print(f"⚠️ Firebase initialization failed: {e}")
     db = None
 
 # Load ML models for task duration estimation
@@ -30,9 +28,7 @@ try:
     duration_model = duration_artifacts['model']
     le_task_type = duration_artifacts['le_task_type']
     le_assignee = duration_artifacts['le_assignee']
-    print("✅ Duration ML model artifacts loaded successfully")
 except Exception as e:
-    print(f"⚠️ Duration ML model artifacts not loaded: {e}")
     duration_model = None
     le_task_type = None
     le_assignee = None
@@ -48,21 +44,17 @@ def call_gemini(prompt, max_retries=5):
                 "generationConfig": {"temperature": 0.5, "maxOutputTokens": 65535}
             }, timeout=180)  # 3 minutes timeout
             
-            print(f"📡 API Response Status: {response.status_code} (Attempt {attempt + 1}/{max_retries})")
             
             # Handle 503 Service Unavailable (overloaded)
             if response.status_code == 503:
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 3  # Exponential backoff: 3s, 6s, 12s, 24s, 48s
-                    print(f"⏳ Model overloaded. Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                     continue
                 else:
-                    print(f"❌ API Error Response: {response.text}")
                     return None, "Gemini API is overloaded. Please wait 30-60 seconds and try again."
             
             if response.status_code != 200:
-                print(f"❌ API Error Response: {response.text}")
                 return None, f"API error {response.status_code}: {response.text[:200]}"
             
             result = response.json()
@@ -70,7 +62,6 @@ def call_gemini(prompt, max_retries=5):
             # Check for various finish reasons
             finish_reason = result.get("candidates", [{}])[0].get("finishReason", "")
             if finish_reason in ["MAX_TOKENS", "RECITATION", "SAFETY"]:
-                print(f"⚠️ Response stopped: {finish_reason}")
                 # Try to return partial content if available
                 if result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text"):
                     return result["candidates"][0]["content"]["parts"][0]["text"], None
@@ -80,13 +71,11 @@ def call_gemini(prompt, max_retries=5):
             
         except requests.exceptions.Timeout:
             if attempt < max_retries - 1:
-                print(f"⏳ Request timed out. Retrying...")
                 time.sleep(2)
                 continue
             return None, "Request timed out - Gemini API is slow. Try again or reduce project scope."
         except Exception as e:
             if attempt < max_retries - 1:
-                print(f"⚠️ Error: {e}. Retrying...")
                 time.sleep(2)
                 continue
             return None, str(e)
@@ -144,7 +133,6 @@ def estimate_task_duration(title, priority="medium", assignee="Unassigned"):
         
         return float(estimated_hours)
     except Exception as e:
-        print(f"⚠️ Duration estimation error: {e}")
         return 2.0
 
 @app.route("/", methods=["GET"])
@@ -283,7 +271,6 @@ def update_user_profile(user_id):
 
         return jsonify({"success": True, "updates": updates}), 200
     except Exception as e:
-        print(f"❌ Profile update error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -350,8 +337,6 @@ def generate():
     team_members = data.get("teamMembers", [])  # Get team members from frontend
     current_user = data.get("currentUser", {})  # Get current logged-in user info
     
-    print(f"📥 Received team members: {team_members}")
-    print(f"👤 Current user: {current_user}")
     
     if len(description) < 10:
         return jsonify({"error": "Description too short (min 10 chars)"}), 400
@@ -391,14 +376,11 @@ def generate():
         team_context += f"3. EVERY task MUST have assigned_user from the list above\n"
         team_context += f"4. Match task types to member roles\n"
         team_context += f"5. Distribute evenly across: {', '.join(member_names)}\n"
-        print(f"✅ Valid team members: {member_names}")
-        print(f"📋 Member roles: {member_roles}")
     elif current_user and current_user.get('username'):
         # Individual project - assign all to current user
         current_username = current_user.get('username')
         member_names = [current_username]
         team_context = f"\n\nAssign ALL tasks to: {current_username} (individual project)"
-        print(f"👤 Individual project - assigning to: {current_username}")
     
     # Generate tasks with STRICT naming requirements and sequential workflow
     prompt = f"""Generate a detailed project plan with tasks as a JSON array of objects. The project is about: {base_description}.
@@ -409,7 +391,6 @@ Ensure the tasks are in a logical sequence.
 This is an AI-generated draft; review and refine task details and assignments for accuracy.
 Return ONLY the JSON array with no markdown formatting."""
     
-    print(f"🤖 Calling Gemini API to generate tasks...\n")
     
     result, error = call_gemini(prompt)
     if error:
@@ -423,8 +404,6 @@ Return ONLY the JSON array with no markdown formatting."""
     except (json.JSONDecodeError, AttributeError):
         return jsonify({"error": "Failed to parse AI response. Please try again."}), 500
 
-    print(f"✅ Received {len(tasks_data)} tasks from AI")
-    print(f"👥 Team roster for assignment: {member_names} (total: {len(member_names)} members)")
     
     # Process tasks with enhanced details
     tasks = []
@@ -468,13 +447,10 @@ Return ONLY the JSON array with no markdown formatting."""
             "actualDuration": 0,
             "comments": []
         })
-        print(f"  ✅ Task #{idx+1} (seq={idx+1}): {t.get('title', '')[:40]}... → {assigned_user}")
     
     # Debug: Print final task order before returning
-    print("\n📤 FINAL TASK ORDER BEING RETURNED:")
     for i, task in enumerate(tasks, 1):
-        print(f"  #{i}: {task['title'][:50]} | {task['task_type']} | → {task['assignedTo']}")
-    print()
+        pass
     
     return jsonify({"tasks": tasks}), 200
 
@@ -517,15 +493,19 @@ def projects():
                         tasks.sort(key=lambda t: t.get("sequence", 999))
                         project["tasks"] = tasks
                     else:
-                        # Just include task count for metadata view
-                        task_count = len(list(doc.reference.collection("tasks").limit(1).stream()))
-                        project["taskCount"] = task_count if task_count > 0 else 0
+                        # Just include task count for metadata view - efficient count using select()
+                        try:
+                            # Only select document IDs, not full documents (1 read per doc vs full read)
+                            tasks_count_query = doc.reference.collection("tasks").select([]).stream()
+                            task_count = sum(1 for _ in tasks_count_query)
+                            project["taskCount"] = task_count
+                        except Exception as count_err:
+                            project["taskCount"] = 0
                         project["tasks"] = []  # Empty array for consistency
                     
                     projects.append(project)
             except Exception as index_error:
                 # Fallback if composite index doesn't exist
-                print(f"⚠️ Composite index error, using simple filter: {index_error}")
                 projects_ref = db.collection("projects").where(filter=firestore.FieldFilter("userId", "==", user_id)).limit(limit)
                 
                 for doc in projects_ref.stream():
@@ -543,7 +523,9 @@ def projects():
                         tasks.sort(key=lambda t: t.get("sequence", 999))
                         project["tasks"] = tasks
                     else:
-                        project["taskCount"] = 0
+                        tasks_count_query = doc.reference.collection("tasks").select([]).stream()
+                        task_count = sum(1 for _ in tasks_count_query)
+                        project["taskCount"] = task_count
                         project["tasks"] = []
                     
                     projects.append(project)
@@ -580,7 +562,12 @@ def projects():
                                 tasks.sort(key=lambda t: t.get("sequence", 999))
                                 project["tasks"] = tasks
                             else:
-                                project["taskCount"] = 0
+                                try:
+                                    tasks_count_query = doc.reference.collection("tasks").select([]).stream()
+                                    task_count = sum(1 for _ in tasks_count_query)
+                                    project["taskCount"] = task_count
+                                except Exception as count_err:
+                                    project["taskCount"] = 0
                                 project["tasks"] = []
                             
                             projects.append(project)
@@ -590,7 +577,6 @@ def projects():
             
             return jsonify({"projects": projects}), 200
         except Exception as e:
-            print(f"❌ Error loading projects: {str(e)}")
             return jsonify({"error": str(e)}), 500
     
     # POST - Save new project
@@ -680,7 +666,6 @@ def delete_project(project_id):
                 batch.delete(doc.reference)
             
             batch.commit()
-            print(f"Deleted a batch of {len(doc_list)} tasks.")
 
         # Delete the project document itself
         project_ref.delete()
@@ -741,6 +726,70 @@ def project_tasks(project_id):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+# Delete a task from a project
+@app.route("/api/projects/<project_id>/tasks/<task_id>", methods=["DELETE", "OPTIONS"])
+def delete_task(project_id, task_id):
+    if request.method == "OPTIONS":
+        return "", 204
+    
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    
+    try:
+        project_ref = db.collection("projects").document(project_id)
+        task_ref = project_ref.collection("tasks").document(task_id)
+        
+        task_doc = task_ref.get()
+        if not task_doc.exists:
+            return jsonify({"error": "Task not found"}), 404
+        
+        task_ref.delete()
+        return jsonify({"success": True, "message": "Task deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Update task (PATCH endpoint for backward compatibility)
+@app.route("/api/tasks/<task_id>", methods=["PATCH", "OPTIONS"])
+def update_task_legacy(task_id):
+    if request.method == "OPTIONS":
+        return "", 204
+    
+    if not db:
+        return jsonify({"error": "Firebase not initialized"}), 500
+    
+    try:
+        data = request.json
+        
+        # Find the task across all projects (inefficient but needed for legacy support)
+        projects_ref = db.collection("projects").stream()
+        
+        for project_doc in projects_ref:
+            task_ref = project_doc.reference.collection("tasks").document(task_id)
+            task_doc = task_ref.get()
+            
+            if task_doc.exists:
+                # Update the task
+                update_data = {}
+                if "status" in data:
+                    update_data["status"] = data["status"]
+                if "assignedTo" in data:
+                    update_data["assignedTo"] = data["assignedTo"]
+                if "title" in data:
+                    update_data["title"] = data["title"]
+                if "description" in data:
+                    update_data["description"] = data["description"]
+                if "priority" in data:
+                    update_data["priority"] = data["priority"]
+                if "due" in data:
+                    update_data["due"] = data["due"]
+                
+                task_ref.update(update_data)
+                return jsonify({"success": True, "message": "Task updated"}), 200
+        
+        return jsonify({"error": "Task not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ============================================ 
 # GROUP MANAGEMENT ENDPOINTS
 # ============================================ 
@@ -785,7 +834,13 @@ def get_user_groups(user_id):
         
         # Get groups where user is admin
         groups_ref = db.collection("groups")
-        admin_groups = groups_ref.where(filter=firestore.FieldFilter("adminId", "==", user_id)).limit(limit).stream()
+        admin_groups_query = groups_ref.where(filter=firestore.FieldFilter("adminId", "==", user_id)).limit(limit)
+        
+        # Get groups where user is a member
+        member_groups_query = groups_ref.where(filter=firestore.FieldFilter("members", "array_contains", user_id)).limit(limit)
+
+        admin_groups = admin_groups_query.stream()
+        member_groups = member_groups_query.stream()
         
         groups = []
         group_ids_seen = set()
@@ -796,22 +851,15 @@ def get_user_groups(user_id):
             group_ids_seen.add(doc.id)
             groups.append(group)
         
-        # Get groups where user is a member (limit to avoid scanning all groups)
-        # This is less efficient, but we limit the scan
-        all_groups = db.collection("groups").limit(100).stream()
-        for doc in all_groups:
+        for doc in member_groups:
             if doc.id in group_ids_seen:
                 continue
             
             group = doc.to_dict()
-            members = group.get("members", [])
-            for member in members:
-                if member.get("userId") == user_id:
-                    group["id"] = doc.id
-                    group["isMember"] = True
-                    groups.append(group)
-                    group_ids_seen.add(doc.id)
-                    break
+            group["id"] = doc.id
+            group["isMember"] = True
+            groups.append(group)
+            group_ids_seen.add(doc.id)
             
             if len(groups) >= limit:
                 break
@@ -821,7 +869,7 @@ def get_user_groups(user_id):
         for group in groups:
             members = group.get("members", [])
             for member in members:
-                if member.get("userId") and (not member.get("name") or member.get("name") == "Unassigned"):
+                if isinstance(member, dict) and member.get("userId") and (not member.get("name") or member.get("name") == "Unassigned"):
                     user_ids_to_fetch.add(member.get("userId"))
         
         # Fetch all user names in batch
@@ -835,20 +883,19 @@ def get_user_groups(user_id):
                         user_data = user_doc.to_dict()
                         user_names[uid] = user_data.get("username") or user_data.get("email") or uid
                 except Exception as e:
-                    print(f"Error fetching user {uid}: {e}")
                     user_names[uid] = uid
         
         # Update member names in groups
         for group in groups:
             members = group.get("members", [])
             for member in members:
-                uid = member.get("userId")
-                if uid in user_names:
-                    member["name"] = user_names[uid]
+                if isinstance(member, dict):
+                    uid = member.get("userId")
+                    if uid in user_names:
+                        member["name"] = user_names[uid]
         
         return jsonify({"groups": groups}), 200
     except Exception as e:
-        print(f"Error loading groups: {e}")
         return jsonify({"error": str(e)}), 500
 
 # Add member to group
@@ -1036,10 +1083,8 @@ def contact_form():
         
         return jsonify({"success": True, "message": "Message received!"}), 201
     except Exception as e:
-        print(f"❌ Contact form error: {e}")
         return jsonify({"error": "An internal error occurred."}), 500
 
 
 if __name__ == "__main__":
-    print("✓ Starting Smart Scheduler API")
     app.run(debug=False, port=5000, host="0.0.0.0")

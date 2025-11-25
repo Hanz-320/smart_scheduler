@@ -73,12 +73,6 @@ function App() {
     localStorage.setItem("tasks", JSON.stringify(tasks));
   }, [tasks]);
 
-  // Add a new task (from AddTask page)
-  const addTask = (task) => {
-    const id = tasks.length ? Math.max(...tasks.map((t) => t.id)) + 1 : 1;
-    setTasks([...tasks, { ...task, id }]);
-  };
-
   // Update tasks after drag-and-drop or edits
   const updateTasks = (newTasks) => setTasks(newTasks);
 
@@ -111,6 +105,7 @@ function App() {
             <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login setUser={setUser} />} />
             <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <Register />} />
             <Route path="/dashboard" element={<Dashboard tasks={tasks} setTasks={updateTasks} user={user} />} />
+            <Route path="/generate" element={<GenerateTasks addTasks={(newTasks) => setTasks(newTasks)} user={user} />} />
             <Route path="/groups" element={<GroupManagement user={user} />} />
             <Route path="/profile" element={<Profile user={user} onUpdateUser={handleUserUpdate} />} />
             <Route path="/about" element={<About />} />

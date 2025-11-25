@@ -5,7 +5,6 @@ import EditTaskModal from "../components/EditTaskModal";
 import AddTaskModal from "../components/AddTaskModal";
 import DeleteConfirmationModal from "../components/DeleteConfirmationModal";
 import Notification from "../components/Notification";
-import axios from "axios";
 import { Link } from "react-router-dom";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
@@ -49,7 +48,13 @@ export default function Dashboard({ tasks, setTasks, user }) {
       if (savedTitle) setCurrentProjectTitle(savedTitle);
     }
     if (user) {
-      loadAvailableProjects();
+      // Clear old cache keys to force refresh with new taskCount data
+      const oldCacheKey = `projects_list_${user.uid}`;
+      localStorage.removeItem(oldCacheKey);
+      localStorage.removeItem(`${oldCacheKey}_time`);
+      
+      // Force refresh on mount to get latest task counts
+      loadAvailableProjects(true);
     } else {
       setCurrentProjectId(null);
     }
@@ -60,8 +65,11 @@ export default function Dashboard({ tasks, setTasks, user }) {
     if (projectStatus === 'generating' && currentProjectId) {
       const interval = setInterval(async () => {
         try {
-          const response = await axios.get(`${BACKEND_URL}/api/projects/${currentProjectId}/status`);
-          const { status, error } = response.data;
+          const response = await fetch(`${BACKEND_URL}/api/projects/${currentProjectId}/status`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const { status, error } = await response.json();
 
           if (status === 'completed') {
             clearInterval(interval);
@@ -88,6 +96,11 @@ export default function Dashboard({ tasks, setTasks, user }) {
     }
   }, [projectStatus, currentProjectId]);
 
+  useEffect(() => {
+    // When the project changes, close any open edit modal to prevent state mismatches
+    setEditingTask(null);
+  }, [currentProjectId]);
+
   const loadAvailableProjects = async (forceRefresh = false) => {
     if (!user) {
       setAvailableProjects([]);
@@ -96,7 +109,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
     }
     
     // Check cache first
-    const cacheKey = `projects_list_${user.uid}`;
+    const cacheKey = `projects_list_${user.uid}_v2`; // v2 to invalidate old cache
     const cacheTimeKey = `${cacheKey}_time`;
     const CACHE_DURATION = 300000; // 5 minutes
     
@@ -126,8 +139,12 @@ export default function Dashboard({ tasks, setTasks, user }) {
     setLoadingProjects(true);
     try {
       // Load projects WITHOUT tasks for faster initial load
-      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=20&includeTasks=false`);
-      const projects = response.data.projects || [];
+      const response = await fetch(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=20&includeTasks=false`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const projects = data.projects || [];
       
       // Cache the projects list
       localStorage.setItem(cacheKey, JSON.stringify(projects));
@@ -154,6 +171,13 @@ export default function Dashboard({ tasks, setTasks, user }) {
     }
   };
   
+  const invalidateTasksCache = (projectId) => {
+    const tasksCacheKey = `project_tasks_${projectId}`;
+    const tasksCacheTimeKey = `${tasksCacheKey}_time`;
+    localStorage.removeItem(tasksCacheKey);
+    localStorage.removeItem(tasksCacheTimeKey);
+  };
+
   const handleProjectChange = async (e) => {
     const projectId = e.target.value;
     if (!projectId) {
@@ -165,64 +189,49 @@ export default function Dashboard({ tasks, setTasks, user }) {
       localStorage.removeItem("tasks");
       return;
     }
-    
-    // Check if tasks are already cached for this project
-    const tasksCacheKey = `project_tasks_${projectId}`;
-    const tasksCacheTimeKey = `${tasksCacheKey}_time`;
-    const TASKS_CACHE_DURATION = 60000; // 1 minute for tasks
-    
-    const cachedTasks = localStorage.getItem(tasksCacheKey);
-    const cacheTime = localStorage.getItem(tasksCacheTimeKey);
-    
-    let project = availableProjects.find(p => p.id === projectId);
-    
-    // If we have cached tasks that are fresh, use them
-    if (cachedTasks && cacheTime && project) {
-      const age = Date.now() - parseInt(cacheTime);
-      if (age < TASKS_CACHE_DURATION) {
-        const tasks = JSON.parse(cachedTasks);
-        setCurrentProjectId(project.id);
-        setCurrentProjectTitle(project.title);
-        localStorage.setItem("currentProjectId", project.id);
-        localStorage.setItem("currentProjectTitle", project.title);
-        setTasks(tasks);
-        localStorage.setItem("tasks", JSON.stringify(tasks));
-        return;
-      }
-    }
-    
-    // Otherwise, fetch the full project with tasks
-    try {
-      const response = await axios.get(`${BACKEND_URL}/api/projects/${projectId}`);
-      project = response.data;
-      
+
+    const project = availableProjects.find(p => p.id === projectId);
+    if (project) {
       setCurrentProjectId(project.id);
       setCurrentProjectTitle(project.title);
       localStorage.setItem("currentProjectId", project.id);
       localStorage.setItem("currentProjectTitle", project.title);
-      
-      const fixedTasks = (project.tasks || []).map(task => ({
+    }
+
+    const tasksCacheKey = `project_tasks_${projectId}`;
+    const tasksCacheTimeKey = `${tasksCacheKey}_time`;
+    const TASKS_CACHE_DURATION = 300000; // 5 minutes
+
+    // Get from cache first
+    const cachedTasks = localStorage.getItem(tasksCacheKey);
+    const cacheTime = localStorage.getItem(tasksCacheTimeKey);
+
+    if (cachedTasks && cacheTime) {
+      const age = Date.now() - parseInt(cacheTime);
+      if (age < TASKS_CACHE_DURATION) {
+        setTasks(JSON.parse(cachedTasks));
+        return; // Use cached data
+      }
+    }
+
+    // Fetch fresh data
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/projects/${projectId}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const freshTasks = (data.tasks || []).map(task => ({
         ...task,
         status: ["todo", "in-progress", "done"].includes(task.status) ? task.status : "todo",
         assignedTo: task.assignedTo || "Unassigned",
       }));
-      
-      // Cache the tasks
-      localStorage.setItem(tasksCacheKey, JSON.stringify(fixedTasks));
+
+      setTasks(freshTasks);
+      localStorage.setItem(tasksCacheKey, JSON.stringify(freshTasks));
       localStorage.setItem(tasksCacheTimeKey, Date.now().toString());
-      
-      setTasks(fixedTasks);
-      localStorage.setItem("tasks", JSON.stringify(fixedTasks));
     } catch (error) {
       console.error("Error loading project:", error);
-      // Fallback to local data if available
-      if (project) {
-        setCurrentProjectId(project.id);
-        setCurrentProjectTitle(project.title);
-        localStorage.setItem("currentProjectId", project.id);
-        localStorage.setItem("currentProjectTitle", project.title);
-        setTasks([]);
-      }
     }
   };
 
@@ -284,10 +293,26 @@ export default function Dashboard({ tasks, setTasks, user }) {
     setTasks(newTasks);
     setLastTaskUpdate(Date.now());
     localStorage.setItem("tasks", JSON.stringify(newTasks));
+    invalidateTasksCache(currentProjectId);
 
     if (user && currentProjectId) {
-      axios.patch(`${BACKEND_URL}/api/tasks/${draggableId}`, { status: updatedTask.status, assignedTo: updatedTask.assignedTo })
-        .catch(err => console.error("❌ Failed to update task on backend:", err));
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/tasks/${draggableId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ status: updatedTask.status, assignedTo: updatedTask.assignedTo }),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      } catch (err) {
+        console.error("❌ Failed to update task on backend:", err);
+        // If the API call fails, revert the UI to its previous state
+        setTasks(tasks);
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+      }
     }
   };
 
@@ -331,34 +356,67 @@ export default function Dashboard({ tasks, setTasks, user }) {
     
     if (user && currentProjectId) {
       try {
-        await axios.patch(`${BACKEND_URL}/api/tasks/${updatedTask.id}`, updatedTask);
+        const response = await fetch(`${BACKEND_URL}/api/tasks/${updatedTask.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updatedTask),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         setShowEditNotification(true);
+        invalidateTasksCache(currentProjectId);
       } catch (err) { console.error("⚠️ Failed to update task in Firebase:", err); }
     }
     setEditingTask(null);
   };
 
   const handleDeleteTask = (task) => {
+    setEditingTask(null); // This line is added to close the edit modal
     setTaskToDelete(task);
   };
 
-  const confirmDeleteTask = async () => {
-    if (!taskToDelete) return;
+  const confirmDeleteTask = async (task) => {
+    console.log("Attempting to delete task. Current task to delete:", task);
+    console.log("Current tasks in state:", tasks);
+    if (!task) return;
 
-    const newTasks = tasks.filter(t => t.id !== taskToDelete.id);
-    setTasks(newTasks);
-    setLastTaskUpdate(Date.now());
-    localStorage.setItem("tasks", JSON.stringify(newTasks));
-    
     if (user && currentProjectId) {
-      try {
-        await axios.delete(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks/${taskToDelete.id}`);
-      } catch (err) { 
-        console.error("⚠️ Failed to delete task from Firebase:", err); 
-      }
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks/${task.id}`, {
+              method: 'DELETE',
+            });
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            // Update state only after successful deletion
+            const newTasks = tasks.filter(t => t.id !== task.id);
+            setTasks(newTasks);
+            setLastTaskUpdate(Date.now());
+            localStorage.setItem("tasks", JSON.stringify(newTasks));
+            invalidateTasksCache(currentProjectId);
+            loadAvailableProjects(true); // Refresh the project list
+            
+            setEditingTask(null);
+            setTaskToDelete(null);
+
+        } catch (err) {
+            console.error("⚠️ Failed to delete task from Firebase:", err);
+            // Optionally, show an error message to the user
+            alert("Failed to delete task. Please try again.");
+        }
+    } else {
+        // Handle guest user case (no backend)
+        const newTasks = tasks.filter(t => t.id !== task.id);
+        setTasks(newTasks);
+        setLastTaskUpdate(Date.now());
+        localStorage.setItem("tasks", JSON.stringify(newTasks));
+        setEditingTask(null);
+        setTaskToDelete(null);
     }
-    setEditingTask(null);
-    setTaskToDelete(null);
   };
 
   const handleAddTask = async (newTask) => {
@@ -367,12 +425,23 @@ export default function Dashboard({ tasks, setTasks, user }) {
       return;
     }
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks`, newTask);
-      const taskWithId = { ...newTask, id: response.data.taskId };
+      const response = await fetch(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newTask),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const taskWithId = { ...newTask, id: data.taskId };
       const updatedTasks = [...tasks, taskWithId];
       setTasks(updatedTasks);
       setLastTaskUpdate(Date.now());
       localStorage.setItem("tasks", JSON.stringify(updatedTasks));
+      invalidateTasksCache(currentProjectId);
       setShowAddTaskModal(false);
     } catch (err) {
       console.error("Error adding task:", err);
@@ -394,7 +463,12 @@ export default function Dashboard({ tasks, setTasks, user }) {
 
   const confirmDeleteProject = async () => {
     try {
-      await axios.delete(`${BACKEND_URL}/api/projects/${currentProjectId}`);
+      const response = await fetch(`${BACKEND_URL}/api/projects/${currentProjectId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       console.log("✅ Project deleted from Firebase");
       
       const deletedProjectId = currentProjectId;
@@ -542,7 +616,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
                       }}
                     >
                       <span className="project-item-name">{project.title}</span>
-                      <span className="project-item-count">{project.tasks?.length || 0}</span>
+                      <span className="project-item-count">{project.taskCount ?? project.tasks?.length ?? 0}</span>
                     </button>
                   ))}
                 </div>
@@ -562,7 +636,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
                       }}
                     >
                       <span className="project-item-name">{project.title}</span>
-                      <span className="project-item-count">{project.tasks?.length || 0}</span>
+                      <span className="project-item-count">{project.taskCount ?? project.tasks?.length ?? 0}</span>
                     </button>
                   ))}
                 </div>
@@ -789,7 +863,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
         <DeleteConfirmationModal
           isOpen={!!taskToDelete}
           onClose={() => setTaskToDelete(null)}
-          onConfirm={confirmDeleteTask}
+          onConfirm={() => confirmDeleteTask(taskToDelete)}
           title="Confirm Task Deletion"
           message={<>Are you sure you want to permanently delete the task: <strong>{taskToDelete.title}</strong>?</>}
         />

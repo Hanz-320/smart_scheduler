@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { FiZap } from "react-icons/fi";
 import DeleteConfirmationModal from "../components/DeleteConfirmationModal";
 
@@ -75,8 +74,12 @@ export default function Home({ addTasks, user }) {
     
     setLoadingProjects(true);
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=50`);
-      const projects = response.data.projects || [];
+      const response = await fetch(`${BACKEND_URL}/api/projects?userId=${user.uid}&limit=50&includeTasks=false`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const projects = data.projects || [];
       
       // Cache the results
       localStorage.setItem(cacheKey, JSON.stringify(projects));
@@ -109,8 +112,12 @@ export default function Home({ addTasks, user }) {
     }
     
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/groups/user/${user.uid}?limit=20`);
-      const loadedGroups = response.data.groups || [];
+      const response = await fetch(`${BACKEND_URL}/api/groups/user/${user.uid}?limit=20`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const loadedGroups = data.groups || [];
       
       // Names are now included from backend, no need for individual fetches
       
@@ -169,19 +176,32 @@ export default function Home({ addTasks, user }) {
 
     try {
       // Send clean description, team members, and current user info
-      const response = await axios.post(`${BACKEND_URL}/generate`, {
-        description: description,
-        teamMembers: teamMembers,
-        currentUser: user ? {
-          uid: user.uid,
-          username: user.username || user.email,
-          email: user.email
-        } : null
+      const response = await fetch(`${BACKEND_URL}/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          description: description,
+          teamMembers: teamMembers,
+          currentUser: user ? {
+            uid: user.uid,
+            username: user.username || user.email,
+            email: user.email
+          } : null
+        }),
       });
 
-      console.log("--- GUEST MODE DEBUG: Backend response received ---", response.data);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
 
-      const generatedTasks = response.data.tasks || [];
+      const data = await response.json();
+
+      console.log("--- GUEST MODE DEBUG: Backend response received ---", data);
+
+      const generatedTasks = data.tasks || [];
       
       // FAILSAFE: Detect and reject Alice/Bob/Carol
       const forbiddenNames = ["Alice", "Bob", "Carol", "Unknown", "Unassigned"];
@@ -229,10 +249,20 @@ export default function Home({ addTasks, user }) {
       if (user) {
         console.log("--- GUEST MODE DEBUG: User is logged in. Saving project... ---");
         try {
-          const saveResponse = await axios.post(`${BACKEND_URL}/api/projects`, project);
-          console.log("✅ Project saved to Firebase:", saveResponse.data);
+          const saveResponse = await fetch(`${BACKEND_URL}/api/projects`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(project),
+          });
+          if(!saveResponse.ok){
+            throw new Error(`HTTP error! status: ${saveResponse.status}`);
+          }
+          const saveData = await saveResponse.json();
+          console.log("✅ Project saved to Firebase:", saveData);
           
-          const projectId = saveResponse.data.projectId;
+          const projectId = saveData.projectId;
           
           // Invalidate cache to ensure fresh data
           localStorage.removeItem(`projects_${user.uid}`);
@@ -257,16 +287,7 @@ export default function Home({ addTasks, user }) {
       navigate("/dashboard");
     } catch (err) {
       console.error("--- GUEST MODE DEBUG: An error occurred in handleGenerate ---", err);
-      if (err.response && err.response.data && err.response.data.error) {
-        // Specific error message from the backend (e.g., validation error)
-        setError(err.response.data.error);
-      } else if (err.response) {
-        // The backend responded with an error, but not in the expected format
-        setError(`An unexpected error occurred. Status: ${err.response.status}`);
-      } else {
-        // No response from the backend at all (network error, CORS, etc.)
-        setError("Failed to connect to the backend. Please ensure it is running and accessible.");
-      }
+      setError(err.message);
     } finally {
       console.log("--- GUEST MODE DEBUG: Finished handleGenerate. Setting loading to false. ---");
       setLoading(false);
@@ -293,7 +314,12 @@ export default function Home({ addTasks, user }) {
   const confirmDeleteProject = async () => {
     if (!projectToDelete) return;
     try {
-      await axios.delete(`${BACKEND_URL}/api/projects/${projectToDelete.id}`);
+      const response = await fetch(`${BACKEND_URL}/api/projects/${projectToDelete.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       console.log("✅ Project deleted from Firebase");
       
       // Invalidate cache
@@ -426,7 +452,7 @@ export default function Home({ addTasks, user }) {
                         )}
                       </h4>
                       <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-                        {project.tasks?.length || 0} tasks • {new Date(project.createdAt).toLocaleDateString()}
+                        {project.taskCount ?? project.tasks?.length ?? 0} tasks • {new Date(project.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div style={{ display: "flex", gap: "10px" }}>

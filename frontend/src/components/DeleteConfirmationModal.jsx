@@ -1,7 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 
 export default function DeleteConfirmationModal({ isOpen, onClose, onConfirm, title = "Confirm Deletion", message, projectName }) {
   if (!isOpen) return null;
+
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirm = () => {
+    setIsDeleting(true);
+    onConfirm();
+  };
 
   const confirmationMessage = message || (
     <>
@@ -28,8 +35,8 @@ export default function DeleteConfirmationModal({ isOpen, onClose, onConfirm, ti
           <button onClick={onClose} className="btn btn-secondary">
             Cancel
           </button>
-          <button onClick={onConfirm} className="btn btn-danger">
-            Delete
+          <button onClick={handleConfirm} className="btn btn-danger" disabled={isDeleting}>
+            {isDeleting ? "Deleting..." : "Delete"}
           </button>
         </div>
       </div>

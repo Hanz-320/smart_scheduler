@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { FiUser, FiMail, FiClipboard, FiCheck, FiGrid, FiCheckSquare, FiEdit, FiList } from "react-icons/fi";
 import EditProfileModal from "../components/EditProfileModal";
 import Notification from "../components/Notification";
-import axios from "axios";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
@@ -25,11 +24,19 @@ export default function Profile({ user }) {
       return;
     }
 
-    try {
-      const savedTasks = localStorage.getItem("tasks");
-      if (savedTasks) {
-        const tasks = JSON.parse(savedTasks);
-        const userTasks = tasks.filter(t => t.assignedTo === (user.username || user.email));
+    const loadTasks = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/projects?userId=${user.uid}&includeTasks=true`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        const projects = data.projects || [];
+        let allTasks = [];
+        for (const project of projects) {
+          allTasks = allTasks.concat(project.tasks);
+        }
+        const userTasks = allTasks.filter(t => t.assignedTo === (user.username || user.email));
         
         setStats({
           totalTasks: userTasks.length,
@@ -37,10 +44,12 @@ export default function Profile({ user }) {
           inProgressTasks: userTasks.filter(t => t.status === "in-progress").length,
           todoTasks: userTasks.filter(t => t.status === "todo").length
         });
+      } catch (err) {
+        console.error("Error loading stats:", err);
       }
-    } catch (err) {
-      console.error("Error loading stats:", err);
-    }
+    };
+
+    loadTasks();
   }, [user, navigate]);
 
   if (!user) {
@@ -75,12 +84,25 @@ export default function Profile({ user }) {
       }
       
       // Call the backend API
-      const response = await axios.patch(
+      const response = await fetch(
         `${BACKEND_URL}/api/users/${user.uid}`,
-        updateData
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updateData),
+        }
       );
       
-      if (response.data.success) {
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
         setShowSuccessNotification(true);
         
         // Update local user object if username changed
@@ -178,13 +200,14 @@ export default function Profile({ user }) {
           </div>
 
           <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: window.innerWidth >= 768 ? '1fr 2fr' : '1fr',
-            gap: '30px'
+            display: 'flex', 
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%'
           }}>
             
-            {/* Left Column: Profile Card */}
-            <div>
+            {/* Profile Card */}
+            <div style={{width: '100%', maxWidth: '500px'}}>
               <div style={{ 
                 backgroundColor: 'var(--bg-secondary)',
                 border: '1px solid var(--border)',
@@ -374,187 +397,9 @@ export default function Profile({ user }) {
                 </div>
               </div>
             </div>
-
-            {/* Right Column: Stats and Info */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
-              {/* Stats Grid */}
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: window.innerWidth >= 640 ? 'repeat(2, 1fr)' : '1fr',
-                gap: '16px'
-              }}>
-                <StatCard icon={<FiGrid />} title="Total Tasks" value={stats.totalTasks} color="primary" />
-                <StatCard icon={<FiCheckSquare />} title="Completed" value={stats.completedTasks} color="success" />
-                <StatCard icon={<FiEdit />} title="In Progress" value={stats.inProgressTasks} color="warning" />
-                <StatCard icon={<FiList />} title="To Do" value={stats.todoTasks} color="info" />
-              </div>
-
-              {/* Productivity Overview */}
-              <div style={{ 
-                backgroundColor: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: '16px',
-                padding: '28px',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
-              }}>
-                <h3 style={{ 
-                  fontSize: '20px', 
-                  fontWeight: '700', 
-                  color: 'var(--text-primary)',
-                  marginBottom: '6px'
-                }}>Productivity Overview</h3>
-                <p style={{ 
-                  fontSize: '14px', 
-                  color: 'var(--text-secondary)',
-                  marginBottom: '24px'
-                }}>Your task completion rate</p>
-                
-                <div style={{ 
-                  width: '100%',
-                  height: '12px',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  borderRadius: '20px',
-                  overflow: 'hidden',
-                  marginBottom: '16px'
-                }}>
-                  <div 
-                    style={{ 
-                      height: '100%',
-                      width: `${completionRate}%`,
-                      background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
-                      borderRadius: '20px',
-                      transition: 'width 0.5s ease'
-                    }}
-                  ></div>
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                    <span style={{ fontWeight: '700', color: 'var(--success)' }}>{stats.completedTasks}</span>
-                    {' of '}
-                    <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{stats.totalTasks}</span>
-                    {' tasks completed'}
-                  </p>
-                  <span style={{ 
-                    fontSize: '24px', 
-                    fontWeight: '700', 
-                    color: 'var(--text-primary)'
-                  }}>{completionRate}%</span>
-                </div>
-              </div>
-
-              {/* Need Help Section */}
-              <div style={{ 
-                backgroundColor: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: '16px',
-                padding: '28px',
-                textAlign: 'center',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
-              }}>
-                <h3 style={{ 
-                  fontSize: '20px', 
-                  fontWeight: '700', 
-                  color: 'var(--text-primary)',
-                  marginBottom: '12px'
-                }}>Need Help?</h3>
-                <p style={{ 
-                  fontSize: '14px', 
-                  color: 'var(--text-secondary)',
-                  marginBottom: '24px',
-                  lineHeight: '1.6'
-                }}>
-                  If you have any questions or need assistance, feel free to reach out to our support team.
-                </p>
-                <button 
-                  onClick={() => navigate('/contact')}
-                  style={{
-                    padding: '14px 28px',
-                    background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '10px',
-                    fontSize: '15px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)',
-                    transition: 'all 0.3s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(99, 102, 241, 0.4)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 15px rgba(99, 102, 241, 0.3)';
-                  }}
-                >
-                  <span>📧</span>
-                  <span>Contact Us</span>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
     </>
   );
 }
-
-// StatCard component
-const StatCard = ({ icon, title, value, color }) => {
-  const colorClasses = {
-    primary: { bg: 'rgba(99, 102, 241, 0.1)', text: 'var(--primary)' },
-    success: { bg: 'rgba(16, 185, 129, 0.1)', text: 'var(--success)' },
-    warning: { bg: 'rgba(245, 158, 11, 0.1)', text: 'var(--warning)' },
-    info: { bg: 'rgba(59, 130, 246, 0.1)', text: 'var(--info)' }
-  };
-
-  const config = colorClasses[color];
-
-  return (
-    <div style={{ 
-      backgroundColor: 'var(--bg-secondary)',
-      border: '1px solid var(--border)',
-      borderRadius: '12px',
-      padding: '20px',
-      boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
-      transition: 'transform 0.2s ease'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <div style={{ 
-          width: '56px', 
-          height: '56px', 
-          borderRadius: '12px',
-          backgroundColor: config.bg,
-          color: config.text,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          {React.cloneElement(icon, { size: 24 })}
-        </div>
-        <div>
-          <p style={{ 
-            fontSize: '12px', 
-            fontWeight: '600',
-            color: 'var(--text-secondary)',
-            marginBottom: '4px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px'
-          }}>{title}</p>
-          <h4 style={{ 
-            fontSize: '28px', 
-            fontWeight: '700', 
-            color: 'var(--text-primary)',
-            margin: 0
-          }}>{value}</h4>
-        </div>
-      </div>
-    </div>
-  );
-};
