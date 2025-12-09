@@ -9,7 +9,7 @@ from itertools import cycle
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
@@ -19,7 +19,9 @@ try:
     cred = credentials.Certificate("firebase_key.json")
     firebase_admin.initialize_app(cred)
     db = firestore.client()
+    print("✅ Firebase initialized successfully")
 except Exception as e:
+    print(f"⚠️ Firebase initialization failed: {e}")
     db = None
 
 # Load ML models for task duration estimation
@@ -39,11 +41,19 @@ def call_gemini(prompt, max_retries=5):
     
     for attempt in range(max_retries):
         try:
+            print(f"🔄 Calling Gemini API (attempt {attempt + 1}/{max_retries})...")
             response = requests.post(GEMINI_URL, json={
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"temperature": 0.5, "maxOutputTokens": 65535}
             }, timeout=180)  # 3 minutes timeout
             
+            print(f"📡 Gemini API response status: {response.status_code}")
+            
+            # Handle 429 Quota Exceeded
+            if response.status_code == 429:
+                print(f"⚠️ Quota exceeded error from Gemini API")
+                print(f"Response body: {response.text[:500]}")
+                return None, "The AI service is temporarily unavailable due to usage limits. Please try again in a few minutes."
             
             # Handle 503 Service Unavailable (overloaded)
             if response.status_code == 503:
@@ -52,10 +62,11 @@ def call_gemini(prompt, max_retries=5):
                     time.sleep(wait_time)
                     continue
                 else:
-                    return None, "Gemini API is overloaded. Please wait 30-60 seconds and try again."
+                    return None, "The AI service is currently busy. Please try again in a few moments."
             
             if response.status_code != 200:
-                return None, f"API error {response.status_code}: {response.text[:200]}"
+                print(f"❌ Unexpected API error {response.status_code}: {response.text[:200]}")
+                return None, "Unable to generate tasks at this time. Please try again later."
             
             result = response.json()
             

@@ -287,7 +287,7 @@ export default function Home({ addTasks, user }) {
       navigate("/dashboard");
     } catch (err) {
       console.error("--- GUEST MODE DEBUG: An error occurred in handleGenerate ---", err);
-      setError(err.message);
+      setError(err.message || "Failed to generate tasks. Please try again.");
     } finally {
       console.log("--- GUEST MODE DEBUG: Finished handleGenerate. Setting loading to false. ---");
       setLoading(false);

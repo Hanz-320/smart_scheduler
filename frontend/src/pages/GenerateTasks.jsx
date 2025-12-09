@@ -45,9 +45,9 @@ export default function GenerateTasks({ addTasks, user }) {
       addTasks(generatedTasks);
       navigate("/dashboard");
     } catch (err) {
-      setError("Failed to generate tasks. Please try again later.");
       console.error("Error generating tasks:", err);
-    } finally {
+      setError(err.response?.data?.error || err.message || "Failed to generate tasks. Please try again.");
+    } finally{
       setLoading(false);
     }
   };
