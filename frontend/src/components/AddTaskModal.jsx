@@ -3,21 +3,34 @@ import axios from "axios";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:5000";
 
-export default function AddTaskModal({ onClose, onSave, teamMembers }) {
+export default function AddTaskModal({ onClose, onSave, teamMembers, existingTasks = [] }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("Medium");
   const [status, setStatus] = useState("todo");
+  const [taskType, setTaskType] = useState("Feature");
   const [assignedTo, setAssignedTo] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState(null);
   const [isEstimating, setIsEstimating] = useState(false);
+  const [insertAfterTaskId, setInsertAfterTaskId] = useState("end");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [estimateCache, setEstimateCache] = useState({});
 
   // Auto-estimate duration when title, priority, or assignee changes
   useEffect(() => {
     const estimateDuration = async () => {
       if (!title.trim() || title.length < 3) {
         setEstimatedHours(null);
+        return;
+      }
+
+      // Create cache key from inputs
+      const cacheKey = `${title.trim()}|${priority}|${assignedTo || "Unassigned"}`;
+      
+      // Check if we already have this estimate cached
+      if (estimateCache[cacheKey]) {
+        setEstimatedHours(estimateCache[cacheKey]);
         return;
       }
 
@@ -29,7 +42,14 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
           assignee: assignedTo || "Unassigned"
         });
         
-        setEstimatedHours(response.data.estimatedHours);
+        const hours = response.data.estimatedHours;
+        setEstimatedHours(hours);
+        
+        // Cache the result
+        setEstimateCache(prev => ({
+          ...prev,
+          [cacheKey]: hours
+        }));
       } catch (error) {
         console.error("Duration estimation error:", error);
         setEstimatedHours(2.0); // Default fallback
@@ -38,29 +58,34 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
       }
     };
 
-    const debounceTimer = setTimeout(estimateDuration, 500);
+    const debounceTimer = setTimeout(estimateDuration, 800);
     return () => clearTimeout(debounceTimer);
-  }, [title, priority, assignedTo]);
+  }, [title, priority, assignedTo, estimateCache]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    
+    if (isSubmitting) return; // Prevent double submission
     
     if (!title.trim()) {
       alert("Task title is required");
       return;
     }
 
+    setIsSubmitting(true);
+
     const newTask = {
       title: title.trim(),
       description: description.trim(),
       priority,
       status,
+      task_type: taskType,
       assignedTo: assignedTo || "Unassigned",
       due: dueDate,
-      task_type: "Feature",
       acceptance_criteria: [],
       dependencies: [],
-      estimatedHours: estimatedHours || 2.0
+      estimatedHours: estimatedHours || 2.0,
+      insertAfterTaskId: insertAfterTaskId !== "end" ? insertAfterTaskId : null
     };
 
     onSave(newTask);
@@ -195,7 +220,84 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
               />
             </div>
 
+            <div className="form-group" style={{ marginBottom: '20px' }}>
+              <label htmlFor="add-insert-position" style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)'
+              }}>Insert Position</label>
+              <select
+                id="add-insert-position"
+                value={insertAfterTaskId}
+                onChange={(e) => setInsertAfterTaskId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: '15px',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '2px solid var(--border)',
+                  borderRadius: '8px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
+                onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+              >
+                <option value="end">➕ Add to end (default)</option>
+                {existingTasks
+                  .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+                  .map((task, index) => (
+                    <option key={task.id} value={task.id}>
+                      After #{index + 1}: {task.title.substring(0, 40)}{task.title.length > 40 ? '...' : ''}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
             <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: '20px' }}>
+              <div className="form-group">
+                <label htmlFor="add-task-type" style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: 'var(--text-primary)'
+                }}>Task Type</label>
+                <select
+                  id="add-task-type"
+                  value={taskType}
+                  onChange={(e) => setTaskType(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    fontSize: '15px',
+                    backgroundColor: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    border: '2px solid var(--border)',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
+                  onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+                >
+                  <option value="Feature">Feature</option>
+                  <option value="Bug">Bug</option>
+                  <option value="Enhancement">Enhancement</option>
+                  <option value="Documentation">Documentation</option>
+                  <option value="Backend">Backend</option>
+                  <option value="Frontend">Frontend</option>
+                  <option value="DevOps">DevOps</option>
+                  <option value="Testing">Testing</option>
+                </select>
+              </div>
               <div className="form-group">
                 <label htmlFor="add-priority" style={{
                   display: 'block',
@@ -420,19 +522,21 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
               </button>
               <button 
                 type="submit"
+                disabled={isSubmitting}
                 style={{
                   padding: '12px 28px',
                   fontSize: '15px',
                   fontWeight: '600',
                   borderRadius: '10px',
-                  background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
+                  background: isSubmitting ? 'var(--bg-tertiary)' : 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
                   color: 'white',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                   boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)',
+                  opacity: isSubmitting ? 0.6 : 1,
                   transition: 'all 0.3s ease'
                 }}
                 onMouseEnter={(e) => {
@@ -444,8 +548,8 @@ export default function AddTaskModal({ onClose, onSave, teamMembers }) {
                   e.currentTarget.style.boxShadow = '0 4px 15px rgba(99, 102, 241, 0.3)';
                 }}
               >
-                <span>✅</span>
-                <span>Add Task</span>
+                <span>{isSubmitting ? '⏳' : '✅'}</span>
+                <span>{isSubmitting ? 'Adding...' : 'Add Task'}</span>
               </button>
             </div>
           </form>

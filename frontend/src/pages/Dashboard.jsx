@@ -425,19 +425,66 @@ export default function Dashboard({ tasks, setTasks, user }) {
       return;
     }
     try {
+      let taskWithSequence;
+
+      // Handle insertAfterTaskId for smart positioning
+      if (newTask.insertAfterTaskId && newTask.insertAfterTaskId !== 'end') {
+        const targetTask = tasks.find(t => t.id === newTask.insertAfterTaskId);
+        if (targetTask) {
+          const targetSequence = targetTask.sequence || 0;
+          // Use fractional sequence to insert without renumbering
+          const nextTask = tasks
+            .filter(t => (t.sequence || 0) > targetSequence)
+            .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))[0];
+          
+          const nextSequence = nextTask ? (nextTask.sequence || 0) : (targetSequence + 1);
+          const newSequence = (targetSequence + nextSequence) / 2;
+          
+          taskWithSequence = {
+            ...newTask,
+            sequence: newSequence
+          };
+          delete taskWithSequence.insertAfterTaskId;
+        } else {
+          // Fallback: add to end if target task not found
+          const maxSequence = tasks.length > 0 
+            ? Math.max(...tasks.map(t => t.sequence || 0))
+            : 0;
+          taskWithSequence = {
+            ...newTask,
+            sequence: maxSequence + 1
+          };
+          delete taskWithSequence.insertAfterTaskId;
+        }
+      } else {
+        // Default: add to end
+        const maxSequence = tasks.length > 0 
+          ? Math.max(...tasks.map(t => t.sequence || 0))
+          : 0;
+        taskWithSequence = {
+          ...newTask,
+          sequence: maxSequence + 1
+        };
+        delete taskWithSequence.insertAfterTaskId;
+      }
+      
+      // Create new task
       const response = await fetch(`${BACKEND_URL}/api/projects/${currentProjectId}/tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(newTask),
+        body: JSON.stringify(taskWithSequence),
       });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      const taskWithId = { ...newTask, id: data.taskId };
+      const taskWithId = { ...taskWithSequence, id: data.taskId };
+      
+      // Update local state with new task
       const updatedTasks = [...tasks, taskWithId];
+      
       setTasks(updatedTasks);
       setLastTaskUpdate(Date.now());
       localStorage.setItem("tasks", JSON.stringify(updatedTasks));
@@ -850,7 +897,7 @@ export default function Dashboard({ tasks, setTasks, user }) {
       </div>
 
       {editingTask && <EditTaskModal task={editingTask} onClose={() => setEditingTask(null)} onSave={handleSaveTask} onDelete={handleDeleteTask} teamMembers={user ? [...new Set(tasks.map(t => t.assignedTo).filter(Boolean))] : []} />}
-      {showAddTaskModal && user && <AddTaskModal onClose={() => setShowAddTaskModal(false)} onSave={handleAddTask} teamMembers={[...new Set(tasks.map(t => t.assignedTo).filter(Boolean))]} />}
+      {showAddTaskModal && user && <AddTaskModal onClose={() => setShowAddTaskModal(false)} onSave={handleAddTask} teamMembers={[...new Set(tasks.map(t => t.assignedTo).filter(Boolean))]} existingTasks={tasks} />}
       
       <DeleteConfirmationModal
         isOpen={showDeleteModal}

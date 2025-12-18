@@ -793,6 +793,8 @@ def update_task_legacy(task_id):
                     update_data["priority"] = data["priority"]
                 if "due" in data:
                     update_data["due"] = data["due"]
+                if "sequence" in data:
+                    update_data["sequence"] = data["sequence"]
                 
                 task_ref.update(update_data)
                 return jsonify({"success": True, "message": "Task updated"}), 200

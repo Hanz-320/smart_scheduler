@@ -4,6 +4,7 @@ export default function EditTaskModal({ task, onClose, onSave, onDelete, teamMem
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
   const [priority, setPriority] = useState(task.priority);
+  const [taskType, setTaskType] = useState(task.task_type || "Feature");
   const [assignedTo, setAssignedTo] = useState(task.assignedTo);
   const [dueDate, setDueDate] = useState(task.due || "");
   const [status, setStatus] = useState(task.status);
@@ -15,6 +16,7 @@ export default function EditTaskModal({ task, onClose, onSave, onDelete, teamMem
       title,
       description,
       priority,
+      task_type: taskType,
       assignedTo,
       due: dueDate,
       status
@@ -60,6 +62,24 @@ export default function EditTaskModal({ task, onClose, onSave, onDelete, teamMem
           </div>
 
           <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="edit-task-type">Task Type</label>
+              <select
+                id="edit-task-type"
+                value={taskType}
+                onChange={(e) => setTaskType(e.target.value)}
+              >
+                <option value="Feature">Feature</option>
+                <option value="Bug">Bug</option>
+                <option value="Enhancement">Enhancement</option>
+                <option value="Documentation">Documentation</option>
+                <option value="Backend">Backend</option>
+                <option value="Frontend">Frontend</option>
+                <option value="DevOps">DevOps</option>
+                <option value="Testing">Testing</option>
+              </select>
+            </div>
+
             <div className="form-group">
               <label htmlFor="edit-priority">Priority</label>
               <select
