@@ -9,7 +9,8 @@ from itertools import cycle
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+# Use a lighter, faster Gemini model variant
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
