@@ -14,7 +14,6 @@ export default function EditProfileModal({ user, onClose, onSave }) {
     e.preventDefault();
     setError("");
 
-    // Validate passwords if changing
     if (newPassword) {
       if (newPassword.length < 6) {
         setError("Password must be at least 6 characters");
@@ -33,7 +32,6 @@ export default function EditProfileModal({ user, onClose, onSave }) {
     setSaving(true);
     
     try {
-      // Prepare update data
       const updates = {
         username: username.trim(),
         email: email.trim()
@@ -44,10 +42,7 @@ export default function EditProfileModal({ user, onClose, onSave }) {
         updates.newPassword = newPassword;
       }
 
-      // Call the onSave callback with updates
       await onSave(updates);
-      
-      // Close modal on success
       onClose();
     } catch (err) {
       setError(err.message || "Failed to update profile");
@@ -143,7 +138,6 @@ export default function EditProfileModal({ user, onClose, onSave }) {
               </div>
             )}
 
-            {/* Basic Info Section */}
             <div style={{ marginBottom: '24px' }}>
               <h4 style={{ 
                 fontSize: '14px', 
@@ -225,7 +219,6 @@ export default function EditProfileModal({ user, onClose, onSave }) {
               </div>
             </div>
 
-            {/* Password Change Section */}
             <div style={{ 
               marginBottom: '24px',
               paddingTop: '20px',
